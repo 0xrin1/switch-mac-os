@@ -49,6 +49,7 @@ public final class SwitchDirectoryService: ObservableObject {
         navigationSelection = .dispatcher(item.jid)
         chatTarget = .dispatcher(item.jid)
         lastSelectedIndividualJid = nil
+        xmpp.ensureHistoryLoaded(with: item.jid)
     }
 
     public func selectGroup(_ item: DirectoryItem) {
@@ -59,11 +60,13 @@ public final class SwitchDirectoryService: ObservableObject {
         navigationSelection = .individual(item.jid)
         chatTarget = .individual(item.jid)
         lastSelectedIndividualJid = item.jid
+        xmpp.ensureHistoryLoaded(with: item.jid)
     }
 
     public func selectSubagent(_ item: DirectoryItem) {
         navigationSelection = .subagent(item.jid)
         chatTarget = .subagent(item.jid)
+        xmpp.ensureHistoryLoaded(with: item.jid)
     }
 
     public func sendChat(body: String) {
@@ -127,7 +130,14 @@ public final class SwitchDirectoryService: ObservableObject {
         let node = nodes.groups(dispatcherJid)
         ensureSubscribed(to: node) { [weak self] in
             self?.queryItems(node: node) { items in
-                self?.groups = items
+                guard let self else { return }
+                self.groups = items
+
+                // For now each dispatcher has a single "Sessions" group.
+                // Auto-select it to immediately show individuals.
+                if items.count == 1, case .dispatcher(let selected) = self.navigationSelection, selected == dispatcherJid {
+                    self.navigationSelection = .group(items[0].jid)
+                }
             }
         }
     }

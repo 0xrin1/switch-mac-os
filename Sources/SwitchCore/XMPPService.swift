@@ -32,12 +32,18 @@ public final class XMPPService: ObservableObject {
 
     private let messageModule: MessageModule
     private let pubSubModule: PubSubModule
+    private let mamModule: MessageArchiveManagementModule
     private var cancellables: Set<AnyCancellable> = []
+
+    private var mamQueryToThread: [String: String] = [:]
+    private var historyLoadedThreads: Set<String> = []
+    private var historyLoadingThreads: Set<String> = []
 
     public init() {
         let chatManager = DefaultChatManager(store: DefaultChatStore())
         self.messageModule = MessageModule(chatManager: chatManager)
         self.pubSubModule = PubSubModule()
+        self.mamModule = MessageArchiveManagementModule()
 
         registerDefaultModules()
         bindPublishers()
@@ -98,6 +104,37 @@ public final class XMPPService: ObservableObject {
         client.module(.pubsub)
     }
 
+    public func ensureHistoryLoaded(with bareJid: String) {
+        if historyLoadedThreads.contains(bareJid) || historyLoadingThreads.contains(bareJid) {
+            return
+        }
+        historyLoadingThreads.insert(bareJid)
+
+        let queryId = UUID().uuidString
+        mamQueryToThread[queryId] = bareJid
+
+        let form = MAMQueryForm(version: .MAM2)
+        form.with = JID(bareJid)
+
+        mamModule.queryItems(version: .MAM2, query: form, queryId: queryId, rsm: RSM.Query(lastItems: 200)) { [weak self] result in
+            Task { @MainActor in
+                guard let self else { return }
+                self.historyLoadingThreads.remove(bareJid)
+                switch result {
+                case .success:
+                    self.historyLoadedThreads.insert(bareJid)
+                case .failure(let err):
+                    logger.error("MAM query failed for \(bareJid, privacy: .public): \(String(describing: err), privacy: .public)")
+                }
+
+                // Results can still be in flight for a moment; keep routing briefly.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    self?.mamQueryToThread.removeValue(forKey: queryId)
+                }
+            }
+        }
+    }
+
     private func configureClient(using config: AppConfig) {
         client.connectionConfiguration.userJid = BareJID(config.xmppJid)
         client.connectionConfiguration.credentials = .password(password: config.xmppPassword)
@@ -119,6 +156,7 @@ public final class XMPPService: ObservableObject {
         client.modulesManager.register(SoftwareVersionModule())
         client.modulesManager.register(PingModule())
         client.modulesManager.register(PresenceModule())
+        client.modulesManager.register(mamModule)
         client.modulesManager.register(messageModule)
         client.modulesManager.register(pubSubModule)
     }
@@ -151,6 +189,27 @@ public final class XMPPService: ObservableObject {
                 guard let from = received.message.from?.bareJid.stringValue else { return }
                 guard let body = received.message.body else { return }
                 self.chatStore.appendIncoming(threadJid: from, body: body, id: received.message.id, timestamp: received.message.delay?.stamp ?? Date())
+            }
+            .store(in: &cancellables)
+
+        mamModule.archivedMessagesPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] archived in
+                guard let self else { return }
+                guard let threadJid = self.mamQueryToThread[archived.query.id] else { return }
+                guard let body = archived.message.body, !body.isEmpty else { return }
+
+                let localBare = self.client.userBareJid
+                let fromBare = archived.message.from?.bareJid
+                let direction: ChatMessage.Direction = (fromBare == localBare) ? .outgoing : .incoming
+                let id = "mam:\(archived.messageId)"
+
+                switch direction {
+                case .incoming:
+                    self.chatStore.appendIncoming(threadJid: threadJid, body: body, id: id, timestamp: archived.timestamp)
+                case .outgoing:
+                    self.chatStore.appendOutgoing(threadJid: threadJid, body: body, id: id, timestamp: archived.timestamp)
+                }
             }
             .store(in: &cancellables)
     }

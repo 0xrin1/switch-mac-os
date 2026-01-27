@@ -33,7 +33,7 @@ public final class ChatStore: ObservableObject {
     }
 
     public func appendIncoming(threadJid: String, body: String, id: String?, timestamp: Date) {
-        append(
+        appendIfMissing(
             ChatMessage(
                 id: id ?? UUID().uuidString,
                 threadJid: threadJid,
@@ -45,7 +45,7 @@ public final class ChatStore: ObservableObject {
     }
 
     public func appendOutgoing(threadJid: String, body: String, id: String?, timestamp: Date) {
-        append(
+        appendIfMissing(
             ChatMessage(
                 id: id ?? UUID().uuidString,
                 threadJid: threadJid,
@@ -56,9 +56,13 @@ public final class ChatStore: ObservableObject {
         )
     }
 
-    private func append(_ message: ChatMessage) {
+    private func appendIfMissing(_ message: ChatMessage) {
         var arr = threads[message.threadJid] ?? []
+        if arr.contains(where: { $0.id == message.id }) {
+            return
+        }
         arr.append(message)
+        arr.sort { $0.timestamp < $1.timestamp }
         threads[message.threadJid] = arr
     }
 }
