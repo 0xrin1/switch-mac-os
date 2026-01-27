@@ -1,28 +1,29 @@
-# XMPP Client Specification
+# switch-mac-os
 
 ## Overview
 
-A custom iOS XMPP client built with Swift using the **Tigase Martin** library. Features a four-column sidebar layout for organizing contacts hierarchically with an always-visible chat panel.
+A custom macOS XMPP client built with SwiftUI using the **Tigase Martin** library. It renders a 4-column hierarchy (Dispatchers/Groups/Individuals/Subagents) and keeps a chat panel always visible.
 
 ## Architecture
 
-### Four-Column Sidebar Layout
+### Four-Column Hierarchy + Always-Visible Chat
 
-| Column | Content | Behavior |
-|--------|---------|----------|
-| **1 (Left)** | Dispatchers | Selecting filters Column 2 + opens dispatcher chat |
-| **2** | Groups (MUC Rooms) | Selecting filters Column 3 (no chat switch) |
-| **3** | Individual Sessions | Selecting filters Column 4 + opens 1:1 chat |
-| **4 (Right)** | Subagents | Selecting opens subagent chat |
+| Pane | Content | Behavior |
+|------|---------|----------|
+| **1** | Dispatchers | Selecting filters Groups + opens dispatcher chat |
+| **2** | Groups (MUC rooms) | Selecting filters Individuals (no chat switch) |
+| **3** | Individuals | Selecting filters Subagents + opens 1:1 chat |
+| **4** | Subagents | Selecting opens 1:1 chat |
+| **Chat** | Chat panel | Always visible; shows welcome state when no chat target |
 
 ### Selection Behavior
 
-- **Single selection** across all columns at any time
+- **Single selection** across the 4 hierarchy panes at any time
 - Selection in a parent column filters the child column(s)
 - Clicking a dispatcher → shows only that dispatcher's groups in Column 2
 - Clicking a group → shows only that group's individuals in Column 3
 - Clicking an individual → shows that individual's subagents in Column 4
-- Chat panel always shows the currently selected contact's conversation
+- Chat panel shows the current chat target (group selection does not change it)
 
 ### Chat Panel
 
@@ -39,7 +40,12 @@ A custom iOS XMPP client built with Swift using the **Tigase Martin** library. F
   - Swift Package Manager integration
   - Modular XEP support
 - **Real-time Updates**: XMPP event backbone via ejabberd
-- **Platform**: iOS
+- **Platform**: macOS
+
+## Local Development
+
+- Copy `.env.example` to `.env` and fill in credentials.
+- On macOS: open `Package.swift` in Xcode and Run the `SwitchMacOS` executable.
 
 ## XMPP Features Required
 
