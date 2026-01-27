@@ -14,14 +14,21 @@ public final class SwitchDirectoryService: ObservableObject {
 
     private let xmpp: XMPPService
     private let directoryBareJid: BareJID
+    private let pubSubBareJid: BareJID?
     private let nodes: SwitchDirectoryNodes
     private var cancellables: Set<AnyCancellable> = []
     private var subscribedNodes: Set<String> = []
     private var lastSelectedIndividualJid: String? = nil
 
-    public init(xmpp: XMPPService, directoryJid: String, nodes: SwitchDirectoryNodes = SwitchDirectoryNodes()) {
+    public init(
+        xmpp: XMPPService,
+        directoryJid: String,
+        pubSubJid: String?,
+        nodes: SwitchDirectoryNodes = SwitchDirectoryNodes()
+    ) {
         self.xmpp = xmpp
         self.directoryBareJid = BareJID(directoryJid)
+        self.pubSubBareJid = pubSubJid.flatMap { BareJID($0) }
         self.nodes = nodes
         bindSelectionPipeline()
         bindPubSubRefresh()
@@ -173,7 +180,8 @@ public final class SwitchDirectoryService: ObservableObject {
         guard !subscribedNodes.contains(node) else { return }
 
         let subscriber = xmpp.client.boundJid ?? JID(xmpp.client.userBareJid)
-        xmpp.pubsub().subscribe(at: directoryBareJid, to: node, subscriber: subscriber, completionHandler: nil)
+        let service = pubSubBareJid ?? directoryBareJid
+        xmpp.pubsub().subscribe(at: service, to: node, subscriber: subscriber, completionHandler: nil)
         subscribedNodes.insert(node)
     }
 

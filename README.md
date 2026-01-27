@@ -47,6 +47,22 @@ A custom macOS XMPP client built with SwiftUI using the **Tigase Martin** librar
 - Copy `.env.example` to `.env` and fill in credentials.
 - On macOS: open `Package.swift` in Xcode and Run the `SwitchMacOS` executable.
 
+## Directory Service (Implemented: Option 1)
+
+This client expects Switch to provide the hierarchy using:
+
+- **XEP-0030 disco#items** served by a Switch "directory" XMPP account (example: `switch-dir@domain`).
+- **XEP-0060 pubsub notifications** sent via ejabberd `mod_pubsub` (usually `pubsub.domain`).
+
+The pubsub payload is treated as a lightweight "refresh ping"; the client refreshes lists by re-running disco queries.
+
+### Node Naming
+
+- `dispatchers`
+- `groups:<dispatcherJid>`
+- `individuals:<groupJid>`
+- `subagents:<individualJid>`
+
 ## XMPP Features Required
 
 ### Core (Tigase Martin Built-in)
@@ -54,7 +70,7 @@ A custom macOS XMPP client built with SwiftUI using the **Tigase Martin** librar
 - XEP-0198: Stream Management - for reconnection
 - XEP-0280: Message Carbons - for multi-device sync
 - XEP-0313: Message Archive Management (MAM) - for history
-- XEP-0357: Push Notifications - for iOS background
+
 
 ### Contact Types (All Standard XMPP JIDs)
 
@@ -82,11 +98,11 @@ Show individual's subagents + open chat
 
 Presence/status text is good for online state, but it's not a reliable place to encode durable classification (dispatcher vs session vs subagent) or parent/child relationships.
 
-Decision: use standard discovery + subscriptions, with the Switch service as the source of truth.
+Decision: use standard discovery + subscriptions, with Switch as the source of truth.
 
-- **Directory service (required)**: Switch runs an XMPP service/component that supports:
+- **Directory service (required)**: Switch runs an XMPP account that supports:
   - XEP-0030 (Service Discovery) to list items for each level
-  - XEP-0060 (PubSub) to push realtime updates when the lists change
+- **PubSub (required)**: ejabberd `mod_pubsub` pushes realtime "refresh" signals (XEP-0060)
   - The service returns structured lists:
     - dispatchers
     - groups for a dispatcher

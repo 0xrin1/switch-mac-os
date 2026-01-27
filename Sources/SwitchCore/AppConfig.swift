@@ -6,19 +6,22 @@ public struct AppConfig: Sendable {
     public let xmppJid: String
     public let xmppPassword: String
     public let switchDirectoryJid: String?
+    public let switchPubSubJid: String?
 
     public init(
         xmppHost: String,
         xmppPort: Int,
         xmppJid: String,
         xmppPassword: String,
-        switchDirectoryJid: String?
+        switchDirectoryJid: String?,
+        switchPubSubJid: String?
     ) {
         self.xmppHost = xmppHost
         self.xmppPort = xmppPort
         self.xmppJid = xmppJid
         self.xmppPassword = xmppPassword
         self.switchDirectoryJid = switchDirectoryJid
+        self.switchPubSubJid = switchPubSubJid
     }
 
     public static func load() throws -> AppConfig {
@@ -33,13 +36,30 @@ public struct AppConfig: Sendable {
         let directory = env["SWITCH_DIRECTORY_JID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let directoryJid = (directory?.isEmpty == false) ? directory : nil
 
+        let pubsub = env["SWITCH_PUBSUB_JID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pubsubJid = (pubsub?.isEmpty == false) ? pubsub : nil
+
         return AppConfig(
             xmppHost: host,
             xmppPort: port,
             xmppJid: jid,
             xmppPassword: password,
-            switchDirectoryJid: directoryJid
+            switchDirectoryJid: directoryJid,
+            switchPubSubJid: pubsubJid
         )
+    }
+}
+
+extension AppConfig {
+    public func inferredPubSubJidIfMissing() -> String? {
+        if let explicit = switchPubSubJid {
+            return explicit
+        }
+        // Best-effort: if the account domain is a DNS name, ejabberd pubsub is usually pubsub.<domain>.
+        let parts = xmppJid.split(separator: "@", maxSplits: 1)
+        guard parts.count == 2 else { return nil }
+        let domain = String(parts[1])
+        return "pubsub.\(domain)"
     }
 }
 

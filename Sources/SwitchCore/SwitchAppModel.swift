@@ -12,7 +12,11 @@ public final class SwitchAppModel: ObservableObject {
             xmpp.connect(using: config)
 
             if let dirJid = config.switchDirectoryJid {
-                directory = SwitchDirectoryService(xmpp: xmpp, directoryJid: dirJid)
+                directory = SwitchDirectoryService(
+                    xmpp: xmpp,
+                    directoryJid: dirJid,
+                    pubSubJid: config.inferredPubSubJidIfMissing()
+                )
                 directory?.refreshAll()
             }
         } catch {
