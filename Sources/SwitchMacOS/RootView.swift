@@ -179,6 +179,9 @@ private struct ChatPane: View {
                     .onChange(of: messages.count) { _ in
                         scrollToBottom(using: proxy)
                     }
+                    .onChange(of: messages.last?.id) { _ in
+                        scrollToBottom(using: proxy)
+                    }
                     .onChange(of: title) { _ in
                         scrollToBottom(using: proxy)
                     }
@@ -202,6 +205,13 @@ private struct ChatPane: View {
     private func scrollToBottom(using proxy: ScrollViewProxy) {
         guard isEnabled else { return }
         DispatchQueue.main.async {
+            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+        }
+        // The Markdown layout can change text height after the first pass.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             proxy.scrollTo(bottomAnchorId, anchor: .bottom)
         }
     }
@@ -264,12 +274,17 @@ private struct MarkdownMessage: View {
     }
 
     private func markdownText(_ s: String) -> some View {
-        // LLM-style output often uses single newlines for layout. Convert them
-        // to Markdown hard breaks so they render as expected.
-        let hardWrapped = s
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\n", with: "  \n")
-        let attr = (try? AttributedString(markdown: hardWrapped)) ?? AttributedString(s)
+        // Preserve blank lines (paragraph breaks), but treat single newlines as
+        // intentional line breaks (LLM output often uses them for layout).
+        let normalized = s.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let hardWrappedLines = lines.map { line in
+            if line.isEmpty { return "" }
+            if line.hasSuffix("  ") { return line }
+            return line + "  "
+        }
+        let hardWrapped = hardWrappedLines.joined(separator: "\n")
+        let attr = (try? AttributedString(markdown: hardWrapped)) ?? AttributedString(normalized)
         return Text(attr)
             .font(.system(size: 13, weight: .regular, design: .default))
             .foregroundStyle(.primary)
