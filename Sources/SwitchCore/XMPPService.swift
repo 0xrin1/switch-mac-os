@@ -7,6 +7,26 @@ private let logger = Logger(subsystem: "com.switch.macos", category: "XMPPServic
 
 public let switchMetaNamespace = "urn:switch:message-meta"
 
+private func localName(of raw: String) -> String {
+    // Handles:
+    // - "meta" / "payload"
+    // - "ns0:meta" (prefix form)
+    // - "{urn:switch:message-meta}meta" (Clark notation)
+    if let braceIdx = raw.lastIndex(of: "}") {
+        let after = raw.index(after: braceIdx)
+        if after < raw.endIndex {
+            return String(raw[after...])
+        }
+    }
+    if let colonIdx = raw.lastIndex(of: ":") {
+        let after = raw.index(after: colonIdx)
+        if after < raw.endIndex {
+            return String(raw[after...])
+        }
+    }
+    return raw
+}
+
 private func isSwitchMetaElement(_ el: Element, localName: String) -> Bool {
     if el.xmlns == switchMetaNamespace {
         return el.name == localName || el.name.hasSuffix(":\(localName)") || el.name.hasSuffix("}\(localName)")
@@ -53,7 +73,8 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
     // Look for direct child:
     // <meta xmlns="urn:switch:message-meta" type="..."> ... </meta>
     // Be tolerant of namespace prefixes in parsed element names.
-    guard let metaElement = element.firstChild(where: { isSwitchMetaElement($0, localName: "meta") }) else {
+    let metaElement = element.children.first(where: { isSwitchMetaElement($0, localName: "meta") || localName(of: $0.name) == "meta" })
+    guard let metaElement else {
         return nil
     }
 
@@ -83,14 +104,27 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
 
     // Parse JSON payload if present
     var payloadJson: String? = nil
-    if let payloadElement = metaElement.firstChild(where: { isSwitchMetaElement($0, localName: "payload") || $0.name == "payload" || $0.name.hasSuffix(":payload") || $0.name.hasSuffix("}payload") }),
-        (payloadElement.attribute("format") ?? "").lowercased() == "json" {
-        payloadJson = payloadElement.value
+    if let payloadElement = metaElement.children.first(where: { localName(of: $0.name) == "payload" }) {
+        if (payloadElement.attribute("format") ?? "").lowercased() == "json" {
+            payloadJson = payloadElement.value
+        }
     }
 
     var question: SwitchQuestionEnvelopeV1? = nil
     if metaType == .question, let payloadJson {
         question = decodeJSON(SwitchQuestionEnvelopeV1.self, from: payloadJson)
+    }
+
+    if metaType == .question, question == nil {
+        logger.debug("Question meta present but payload decode failed")
+        logger.debug("meta.name=\(metaElement.name, privacy: .public) meta.xmlns=\(metaElement.xmlns ?? "nil", privacy: .public)")
+        let childNames = metaElement.children.map { "\($0.name)[\($0.xmlns ?? "nil")]" }.joined(separator: ", ")
+        logger.debug("meta.children=\(childNames, privacy: .public)")
+        if let payloadElement = metaElement.children.first(where: { localName(of: $0.name) == "payload" }) {
+            logger.debug("payload.name=\(payloadElement.name, privacy: .public) payload.xmlns=\(payloadElement.xmlns ?? "nil", privacy: .public)")
+            logger.debug("payload.format=\((payloadElement.attribute("format") ?? "nil"), privacy: .public)")
+            logger.debug("payload.value=\((payloadElement.value ?? "nil"), privacy: .public)")
+        }
     }
 
     // Parse run-stats attributes if present
