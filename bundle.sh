@@ -47,6 +47,26 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
     <string>1.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>100.119.143.40</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+            </dict>
+            <key>claude.local</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+            </dict>
+        </dict>
+    </dict>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>
