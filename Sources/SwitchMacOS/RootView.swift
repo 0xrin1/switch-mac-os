@@ -1,6 +1,8 @@
 import AppKit
+import Foundation
 import SwiftUI
 import SwitchCore
+import UniformTypeIdentifiers
 
 struct RootView: View {
     @ObservedObject var model: SwitchAppModel
@@ -23,6 +25,7 @@ private struct DirectoryShellView: View {
     @ObservedObject var xmpp: XMPPService
     @ObservedObject var chatStore: ChatStore
     @State private var composerText: String = ""
+    @State private var pendingImage: PendingImageAttachment? = nil
 
     var body: some View {
         HSplitView {
@@ -49,8 +52,20 @@ private struct DirectoryShellView: View {
                 messages: messagesForActiveChat(),
                 xmpp: xmpp,
                 composerText: $composerText,
+                pendingImage: $pendingImage,
                 onSend: {
                     let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let pending = pendingImage {
+                        directory.sendImageAttachment(
+                            data: pending.data,
+                            filename: pending.filename,
+                            mime: pending.mime,
+                            caption: trimmed.isEmpty ? nil : trimmed
+                        )
+                        pendingImage = nil
+                        composerText = ""
+                        return
+                    }
                     guard !trimmed.isEmpty else { return }
                     directory.sendChat(body: trimmed)
                     composerText = ""
@@ -155,12 +170,114 @@ private struct ColumnList: View {
     }
 }
 
+private struct PendingImageAttachment {
+    let data: Data
+    let filename: String
+    let mime: String
+    let preview: NSImage
+
+    static func from(fileUrl: URL) -> PendingImageAttachment? {
+        guard fileUrl.isFileURL else { return nil }
+        let filename = fileUrl.lastPathComponent
+        guard let data = try? Data(contentsOf: fileUrl) else { return nil }
+        return from(imageData: data, defaultFilename: filename, fileUrl: fileUrl)
+    }
+
+    static func from(firstImageAt urls: [URL]) -> PendingImageAttachment? {
+        for url in urls {
+            if let pending = from(fileUrl: url) {
+                return pending
+            }
+        }
+        return nil
+    }
+
+    static func from(nsImage: NSImage) -> PendingImageAttachment? {
+        guard let data = pngData(from: nsImage) else { return nil }
+        let filename = "pasted-\(Int(Date().timeIntervalSince1970)).png"
+        return PendingImageAttachment(data: data, filename: filename, mime: "image/png", preview: nsImage)
+    }
+
+    static func from(imageData: Data, defaultFilename: String, fileUrl: URL? = nil) -> PendingImageAttachment? {
+        guard let preview = NSImage(data: imageData) else { return nil }
+
+        let type: UTType?
+        if let fileUrl {
+            type = UTType(filenameExtension: fileUrl.pathExtension)
+        } else {
+            type = UTType(filenameExtension: URL(fileURLWithPath: defaultFilename).pathExtension)
+        }
+        let mime = type?.preferredMIMEType ?? "image/png"
+
+        return PendingImageAttachment(data: imageData, filename: defaultFilename, mime: mime, preview: preview)
+    }
+
+    static func urlFromDropItem(_ item: NSSecureCoding?) -> URL? {
+        if let url = item as? URL { return url }
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+        if let str = item as? String {
+            return URL(string: str)
+        }
+        return nil
+    }
+
+    private static func pngData(from image: NSImage) -> Data? {
+        guard let tiff = image.tiffRepresentation else { return nil }
+        guard let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .png, properties: [:])
+    }
+}
+
+private struct PendingImageRow: View {
+    let pending: PendingImageAttachment
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: pending.preview)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 46, height: 46)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.20), lineWidth: 1)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pending.filename)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                Text(pending.mime)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
 private struct ChatPane: View {
     let title: String
     let threadJid: String?
     let messages: [ChatMessage]
     let xmpp: XMPPService
     @Binding var composerText: String
+    @Binding var pendingImage: PendingImageAttachment?
     let onSend: () -> Void
     let isEnabled: Bool
     let isTyping: Bool
@@ -170,6 +287,7 @@ private struct ChatPane: View {
     private let composerMaxHeight: CGFloat = 160
     @State private var composerHeight: CGFloat = 28
     @State private var scrollTask: Task<Void, Never>? = nil
+    @State private var isDropTarget: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -223,38 +341,59 @@ private struct ChatPane: View {
 
             Divider()
 
-            HStack(spacing: 8) {
-                ZStack(alignment: .topLeading) {
-                    ComposerTextView(
-                        text: $composerText,
-                        measuredHeight: $composerHeight,
-                        minHeight: composerMinHeight,
-                        maxHeight: composerMaxHeight,
-                        isEnabled: isEnabled,
-                        onSubmit: onSend
-                    )
-
-                    if composerText.isEmpty {
-                        Text("Message")
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .allowsHitTesting(false)
+            VStack(spacing: 8) {
+                if let pendingImage {
+                    PendingImageRow(pending: pendingImage) {
+                        self.pendingImage = nil
                     }
                 }
-                .frame(minHeight: composerHeight, maxHeight: composerHeight)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                )
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color(NSColor.controlBackgroundColor))
-                )
-                Button("Send") { onSend() }
-                    .disabled(!isEnabled || composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                HStack(spacing: 8) {
+                    ZStack(alignment: .topLeading) {
+                        ComposerTextView(
+                            text: $composerText,
+                            measuredHeight: $composerHeight,
+                            minHeight: composerMinHeight,
+                            maxHeight: composerMaxHeight,
+                            isEnabled: isEnabled,
+                            onPasteImage: { img in
+                                if let pending = PendingImageAttachment.from(nsImage: img) {
+                                    self.pendingImage = pending
+                                }
+                            },
+                            onPasteFileUrls: { urls in
+                                if let pending = PendingImageAttachment.from(firstImageAt: urls) {
+                                    self.pendingImage = pending
+                                }
+                            },
+                            onSubmit: onSend
+                        )
+
+                        if composerText.isEmpty {
+                            Text("Message")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .frame(minHeight: composerHeight, maxHeight: composerHeight)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(isDropTarget ? Color.accentColor.opacity(0.8) : Color.secondary.opacity(0.25), lineWidth: 1)
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                    )
+                    Button("Send") { onSend() }
+                        .disabled(!isEnabled || !hasSendableContent)
+                }
             }
             .padding(10)
+            .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier], isTargeted: $isDropTarget) { providers in
+                handleDrop(providers)
+            }
         }
         .frame(minWidth: 420)
         .onChange(of: composerText) { newValue in
@@ -262,6 +401,44 @@ private struct ChatPane: View {
                 composerHeight = composerMinHeight
             }
         }
+        .onChange(of: threadJid) { _ in
+            pendingImage = nil
+        }
+    }
+
+    private var hasSendableContent: Bool {
+        if pendingImage != nil { return true }
+        return !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard isEnabled else { return false }
+
+        if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                guard let url = PendingImageAttachment.urlFromDropItem(item) else { return }
+                if let pending = PendingImageAttachment.from(fileUrl: url) {
+                    DispatchQueue.main.async {
+                        self.pendingImage = pending
+                    }
+                }
+            }
+            return true
+        }
+
+        if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }) {
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                guard let data else { return }
+                if let pending = PendingImageAttachment.from(imageData: data, defaultFilename: "dropped.png") {
+                    DispatchQueue.main.async {
+                        self.pendingImage = pending
+                    }
+                }
+            }
+            return true
+        }
+
+        return false
     }
 
     private func scrollToBottom(using proxy: ScrollViewProxy) {
@@ -311,6 +488,10 @@ private struct ChatPane: View {
                             )
                         }
                         .frame(maxWidth: 520, alignment: .leading)
+                    } else
+                    if msg.meta?.type == .attachment, let atts = msg.meta?.attachments, !atts.isEmpty {
+                        AttachmentMessageView(attachments: atts, bodyText: msg.body, direction: msg.direction)
+                            .frame(maxWidth: 520, alignment: msg.direction == .incoming ? .leading : .trailing)
                     } else
                     if isToolMessage {
                         toolMessageContent
@@ -419,6 +600,181 @@ private struct ChatPane: View {
             } else {
                 formatter.dateFormat = "MMM d, h:mm a"
                 return formatter.string(from: date)
+            }
+        }
+    }
+
+    private struct AttachmentMessageView: View {
+        let attachments: [SwitchAttachment]
+        let bodyText: String
+        let direction: ChatMessage.Direction
+
+        var body: some View {
+            let images = attachments.filter { isImage($0) }
+            let caption = extractCaption(bodyText: bodyText, attachments: images)
+
+            VStack(alignment: direction == .incoming ? .leading : .trailing, spacing: 8) {
+                if let caption, !caption.isEmpty {
+                    MarkdownMessage(content: caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(bubbleColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
+                if !images.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(images.prefix(4)) { att in
+                            AttachmentThumbnail(att: att)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(attachments.prefix(6)) { att in
+                            Button(action: { openAttachment(att) }) {
+                                Text(att.filename ?? att.publicUrl ?? att.localPath ?? "Attachment")
+                                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(bubbleColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+        }
+
+        private func isImage(_ att: SwitchAttachment) -> Bool {
+            if let mime = att.mime?.lowercased(), mime.hasPrefix("image/") { return true }
+            if let kind = att.kind?.lowercased(), kind == "image" { return true }
+            if let fn = att.filename?.lowercased() {
+                if fn.hasSuffix(".png") || fn.hasSuffix(".jpg") || fn.hasSuffix(".jpeg") || fn.hasSuffix(".gif") || fn.hasSuffix(".webp") || fn.hasSuffix(".heic") {
+                    return true
+                }
+            }
+            return false
+        }
+
+        private func extractCaption(bodyText: String, attachments: [SwitchAttachment]) -> String? {
+            let t = bodyText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { return nil }
+
+            let lines = t.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            if lines.count >= 2, let last = lines.last, looksLikeUrl(last) {
+                let url = last.trimmingCharacters(in: .whitespacesAndNewlines)
+                if attachments.contains(where: { $0.publicUrl == url }) {
+                    let captionLines = lines.dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                    return captionLines.isEmpty ? nil : captionLines
+                }
+            }
+
+            if looksLikeUrl(t), attachments.contains(where: { $0.publicUrl == t }) {
+                return nil
+            }
+
+            return t
+        }
+
+        private func looksLikeUrl(_ s: String) -> Bool {
+            guard let u = URL(string: s.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+            return u.scheme == "http" || u.scheme == "https" || u.scheme == "file"
+        }
+
+        private var bubbleColor: Color {
+            switch direction {
+            case .incoming:
+                return Color.secondary.opacity(0.12)
+            case .outgoing:
+                return Color.accentColor.opacity(0.18)
+            }
+        }
+
+        private func openAttachment(_ att: SwitchAttachment) {
+            if let s = att.publicUrl, let u = URL(string: s) {
+                NSWorkspace.shared.open(u)
+                return
+            }
+            if let p = att.localPath {
+                NSWorkspace.shared.open(URL(fileURLWithPath: p))
+                return
+            }
+        }
+
+        private struct AttachmentThumbnail: View {
+            let att: SwitchAttachment
+
+            var body: some View {
+                Button(action: { open() }) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.secondary.opacity(0.10))
+
+                        if let url = bestUrl() {
+                            if url.isFileURL {
+                                if let img = NSImage(contentsOf: url) {
+                                    Image(nsImage: img)
+                                        .resizable()
+                                        .scaledToFill()
+                                } else {
+                                    placeholder
+                                }
+                            } else {
+                                AsyncImage(url: url) { phase in
+                                    switch phase {
+                                    case .empty:
+                                        placeholder
+                                    case .failure:
+                                        placeholder
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .scaledToFill()
+                                    @unknown default:
+                                        placeholder
+                                    }
+                                }
+                            }
+                        } else {
+                            placeholder
+                        }
+                    }
+                    .frame(width: 180, height: 140)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.20), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            private var placeholder: some View {
+                VStack(spacing: 6) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(att.filename ?? "image")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: 160)
+                }
+            }
+
+            private func bestUrl() -> URL? {
+                if let s = att.publicUrl, let u = URL(string: s) { return u }
+                if let p = att.localPath { return URL(fileURLWithPath: p) }
+                return nil
+            }
+
+            private func open() {
+                if let url = bestUrl() {
+                    NSWorkspace.shared.open(url)
+                }
             }
         }
     }
@@ -636,6 +992,8 @@ private struct ChatPane: View {
 private final class SubmitTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var allowSubmit: (() -> Bool)?
+    var onPasteImage: ((NSImage) -> Void)?
+    var onPasteFileUrls: (([URL]) -> Void)?
 
     override func keyDown(with event: NSEvent) {
         let isReturnKey = (event.keyCode == 36) || (event.keyCode == 76)
@@ -650,6 +1008,26 @@ private final class SubmitTextView: NSTextView {
 
         super.keyDown(with: event)
     }
+
+    override func paste(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], !urls.isEmpty {
+            let imageFileUrls = urls.filter { url in
+                guard url.isFileURL else { return false }
+                guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+                return type.conforms(to: .image)
+            }
+            if !imageFileUrls.isEmpty {
+                onPasteFileUrls?(imageFileUrls)
+                return
+            }
+        }
+        if let img = NSImage(pasteboard: pb) {
+            onPasteImage?(img)
+            return
+        }
+        super.paste(sender)
+    }
 }
 
 private struct ComposerTextView: NSViewRepresentable {
@@ -658,6 +1036,8 @@ private struct ComposerTextView: NSViewRepresentable {
     let minHeight: CGFloat
     let maxHeight: CGFloat
     let isEnabled: Bool
+    let onPasteImage: ((NSImage) -> Void)?
+    let onPasteFileUrls: (([URL]) -> Void)?
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -690,6 +1070,8 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.textColor = .labelColor
         textView.onSubmit = onSubmit
         textView.allowSubmit = { isEnabled }
+        textView.onPasteImage = onPasteImage
+        textView.onPasteFileUrls = onPasteFileUrls
 
         if let container = textView.textContainer {
             container.widthTracksTextView = true
@@ -708,6 +1090,8 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.isEditable = isEnabled
         textView.onSubmit = onSubmit
         textView.allowSubmit = { isEnabled }
+        textView.onPasteImage = onPasteImage
+        textView.onPasteFileUrls = onPasteFileUrls
 
         if textView.string != text {
             textView.string = text

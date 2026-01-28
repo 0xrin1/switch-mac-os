@@ -9,6 +9,7 @@ public struct MessageMeta: Hashable, Sendable {
         case runStats = "run-stats"
         case question
         case questionReply = "question-reply"
+        case attachment
         case unknown
     }
 
@@ -17,19 +18,22 @@ public struct MessageMeta: Hashable, Sendable {
     public let runStats: RunStats?
     public let requestId: String?
     public let question: SwitchQuestionEnvelopeV1?
+    public let attachments: [SwitchAttachment]?
 
     public init(
         type: MetaType,
         tool: String? = nil,
         runStats: RunStats? = nil,
         requestId: String? = nil,
-        question: SwitchQuestionEnvelopeV1? = nil
+        question: SwitchQuestionEnvelopeV1? = nil,
+        attachments: [SwitchAttachment]? = nil
     ) {
         self.type = type
         self.tool = tool
         self.runStats = runStats
         self.requestId = requestId
         self.question = question
+        self.attachments = attachments
     }
 
     public var isToolRelated: Bool {
@@ -38,6 +42,10 @@ public struct MessageMeta: Hashable, Sendable {
 
     public var isQuestionRelated: Bool {
         type == .question || type == .questionReply
+    }
+
+    public var isAttachmentRelated: Bool {
+        type == .attachment
     }
 }
 

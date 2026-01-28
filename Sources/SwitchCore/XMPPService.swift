@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 import Martin
 import os
@@ -6,6 +7,8 @@ import os
 private let logger = Logger(subsystem: "com.switch.macos", category: "XMPPService")
 
 public let switchMetaNamespace = "urn:switch:message-meta"
+
+private let oobNamespace = "jabber:x:oob"
 
 private func localName(of raw: String) -> String {
     // Handles:
@@ -48,6 +51,22 @@ private func decodeJSON<T: Decodable>(_ type: T.Type, from json: String) -> T? {
         logger.notice("Failed to decode JSON payload: \(String(describing: error), privacy: .public)")
         return nil
     }
+}
+
+private func sha256Hex(_ data: Data) -> String {
+    let digest = SHA256.hash(data: data)
+    return digest.map { String(format: "%02x", $0) }.joined()
+}
+
+private func buildOobElement(url: String, desc: String?) -> Element {
+    let x = Element(name: "x", xmlns: oobNamespace)
+    let u = Element(name: "url", cdata: url, xmlns: oobNamespace)
+    x.addChild(u)
+    if let desc, !desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let d = Element(name: "desc", cdata: desc, xmlns: oobNamespace)
+        x.addChild(d)
+    }
+    return x
 }
 
 public func buildSwitchMetaElement(type: String, tool: String? = nil, attrs: [String: String] = [:], payloadJson: String? = nil) -> Element {
@@ -94,6 +113,8 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
         metaType = .question
     case "question-reply":
         metaType = .questionReply
+    case "attachment":
+        metaType = .attachment
     default:
         metaType = .unknown
     }
@@ -113,6 +134,11 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
     var question: SwitchQuestionEnvelopeV1? = nil
     if metaType == .question, let payloadJson {
         question = decodeJSON(SwitchQuestionEnvelopeV1.self, from: payloadJson)
+    }
+
+    var attachments: [SwitchAttachment]? = nil
+    if metaType == .attachment, let payloadJson {
+        attachments = SwitchAttachmentCodec.decodeAttachments(from: payloadJson)
     }
 
     if metaType == .question, question == nil {
@@ -149,7 +175,7 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
         )
     }
 
-    return MessageMeta(type: metaType, tool: tool, runStats: runStats, requestId: requestId, question: question)
+    return MessageMeta(type: metaType, tool: tool, runStats: runStats, requestId: requestId, question: question, attachments: attachments)
 }
 
 class DebugStreamLogger: StreamLogger {
@@ -181,11 +207,14 @@ public final class XMPPService: ObservableObject {
     private let pubSubModule: PubSubModule
     private let mamModule: MessageArchiveManagementModule
     private let chatStateModule: ChatStateNotificationsModule
+    private let httpUploadModule: HttpFileUploadModule
     private var cancellables: Set<AnyCancellable> = []
 
     private var mamQueryToThread: [String: String] = [:]
     private var historyLoadedThreads: Set<String> = []
     private var historyLoadingThreads: Set<String> = []
+
+    private var cachedUploadComponents: [HttpFileUploadModule.UploadComponent] = []
 
     /// JIDs currently in "composing" (typing) state
     @Published public private(set) var composingJids: Set<String> = []
@@ -196,6 +225,7 @@ public final class XMPPService: ObservableObject {
         self.pubSubModule = PubSubModule()
         self.mamModule = MessageArchiveManagementModule()
         self.chatStateModule = ChatStateNotificationsModule()
+        self.httpUploadModule = HttpFileUploadModule()
 
         registerDefaultModules()
         bindPublishers()
@@ -216,6 +246,48 @@ public final class XMPPService: ObservableObject {
 
     public func sendMessage(to bareJid: String, body: String) {
         sendWireMessage(to: bareJid, wireBody: body, displayBody: body, metaElement: nil, metaForStore: nil)
+    }
+
+    public func sendImageAttachment(to bareJid: String, data: Data, filename: String, mime: String, caption: String?) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let component = try await self.pickUploadComponent(for: data.count)
+                let slot = try await self.httpUploadModule.requestUploadSlot(componentJid: component.jid, filename: filename, size: data.count, contentType: mime)
+                try await self.putUpload(data: data, to: slot.putUri, mime: mime, extraHeaders: slot.putHeaders)
+
+                let urlStr = slot.getUri.absoluteString
+                let trimmedCaption = caption?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let hasCaption = (trimmedCaption?.isEmpty == false)
+                let wireBody = hasCaption ? "\(trimmedCaption!)\n\(urlStr)" : urlStr
+
+                let attachment = SwitchAttachment(
+                    id: UUID().uuidString,
+                    kind: "image",
+                    mime: mime,
+                    localPath: nil,
+                    publicUrl: urlStr,
+                    filename: filename,
+                    sizeBytes: data.count,
+                    sha256: sha256Hex(data)
+                )
+                let payloadJson = SwitchAttachmentCodec.encodePayloadJson(attachments: [attachment])
+                let metaEl = buildSwitchMetaElement(type: "attachment", attrs: ["version": "1"], payloadJson: payloadJson)
+                let metaForStore = MessageMeta(type: .attachment, attachments: [attachment])
+
+                let oob = buildOobElement(url: urlStr, desc: trimmedCaption)
+                self.sendWireMessage(
+                    to: bareJid,
+                    wireBody: wireBody,
+                    displayBody: wireBody,
+                    metaElement: metaEl,
+                    metaForStore: metaForStore,
+                    extraElements: [oob]
+                )
+            } catch {
+                logger.error("Image upload failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     public func sendQuestionReply(to bareJid: String, requestId: String, answers: [[String]]?, text: String? = nil, displayText: String) {
@@ -245,7 +317,7 @@ public final class XMPPService: ObservableObject {
         sendWireMessage(to: subagentJid, wireBody: encoded, displayBody: body, metaElement: nil, metaForStore: nil)
     }
 
-    private func sendWireMessage(to bareJid: String, wireBody: String, displayBody: String, metaElement: Element?, metaForStore: MessageMeta?) {
+    private func sendWireMessage(to bareJid: String, wireBody: String, displayBody: String, metaElement: Element?, metaForStore: MessageMeta?, extraElements: [Element] = []) {
         let to = BareJID(bareJid)
         let chat = messageModule.chatManager.createChat(for: client, with: to)
         guard let conversation = chat as? ConversationBase else {
@@ -255,6 +327,9 @@ public final class XMPPService: ObservableObject {
         let msg = conversation.createMessage(text: wireBody, id: id)
         if let metaElement {
             msg.element.addChild(metaElement)
+        }
+        for el in extraElements {
+            msg.element.addChild(el)
         }
         conversation.send(message: msg, completionHandler: nil)
 
@@ -334,6 +409,34 @@ public final class XMPPService: ObservableObject {
         client.modulesManager.register(messageModule)
         client.modulesManager.register(pubSubModule)
         client.modulesManager.register(chatStateModule)
+        client.modulesManager.register(httpUploadModule)
+    }
+
+    private func pickUploadComponent(for byteCount: Int) async throws -> HttpFileUploadModule.UploadComponent {
+        if let ok = cachedUploadComponents.first(where: { $0.maxSize >= byteCount }) {
+            return ok
+        }
+        let found = try await httpUploadModule.findHttpUploadComponents()
+        cachedUploadComponents = found
+        if let ok = found.first(where: { $0.maxSize >= byteCount }) {
+            return ok
+        }
+        throw XMPPError.not_acceptable
+    }
+
+    private func putUpload(data: Data, to url: URL, mime: String, extraHeaders: [String: String]) async throws {
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue(mime, forHTTPHeaderField: "Content-Type")
+        for (k, v) in extraHeaders {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        let (_, resp) = try await URLSession.shared.upload(for: req, from: data)
+        if let http = resp as? HTTPURLResponse {
+            if !(200...299).contains(http.statusCode) {
+                throw NSError(domain: "HttpFileUpload", code: http.statusCode)
+            }
+        }
     }
 
     private func bindPublishers() {

@@ -102,6 +102,25 @@ public final class SwitchDirectoryService: ObservableObject {
         }
     }
 
+    public func sendImageAttachment(data: Data, filename: String, mime: String, caption: String?) {
+        guard let target = chatTarget else { return }
+        let jid = target.jid
+
+        switch target {
+        case .subagent:
+            // Subagent work messages are a custom wire format; keep attachments disabled for now.
+            return
+        case .dispatcher, .individual:
+            xmpp.sendImageAttachment(to: jid, data: data, filename: filename, mime: mime, caption: caption)
+        }
+
+        if case .dispatcher(let dispatcherJid) = target {
+            knownIndividualJids = Set(individuals.map { $0.jid })
+            awaitingNewSession = true
+            pollForNewSession(dispatcherJid: dispatcherJid)
+        }
+    }
+
     public func messagesForActiveChat() -> [ChatMessage] {
         guard let target = chatTarget else { return [] }
         return xmpp.chatStore.messages(for: target.jid)
