@@ -45,6 +45,11 @@ public final class SwitchDirectoryService: ObservableObject {
         refreshChildListsForCurrentSelection()
     }
 
+    private func selectDispatcherForNavigation(_ jid: String) {
+        navigationSelection = .dispatcher(jid)
+        lastSelectedIndividualJid = nil
+    }
+
     public func selectDispatcher(_ item: DirectoryItem) {
         navigationSelection = .dispatcher(item.jid)
         chatTarget = .dispatcher(item.jid)
@@ -101,7 +106,14 @@ public final class SwitchDirectoryService: ObservableObject {
         let node = nodes.dispatchers
         ensureSubscribed(to: node) { [weak self] in
             self?.queryItems(node: node) { items in
-                self?.dispatchers = items
+                guard let self else { return }
+                self.dispatchers = items
+
+                // Initial UX: select the first dispatcher so its default group
+                // auto-selects and sessions populate without extra clicks.
+                if self.navigationSelection == nil, let first = items.first {
+                    self.selectDispatcherForNavigation(first.jid)
+                }
             }
         }
     }
@@ -135,8 +147,25 @@ public final class SwitchDirectoryService: ObservableObject {
 
                 // For now each dispatcher has a single "Sessions" group.
                 // Auto-select it to immediately show individuals.
-                if items.count == 1, case .dispatcher(let selected) = self.navigationSelection, selected == dispatcherJid {
-                    self.navigationSelection = .group(items[0].jid)
+                if items.count == 1, let groupJid = items.first?.jid {
+                    let shouldAutoSelect: Bool
+                    switch self.navigationSelection {
+                    case .dispatcher(let selected):
+                        shouldAutoSelect = (selected == dispatcherJid)
+                    case .group(let selected):
+                        shouldAutoSelect = (selected == groupJid)
+                    default:
+                        shouldAutoSelect = false
+                    }
+
+                    if shouldAutoSelect {
+                        if self.navigationSelection != .group(groupJid) {
+                            self.navigationSelection = .group(groupJid)
+                        }
+                        // Be explicit: refresh sessions now rather than relying on
+                        // Combine selection propagation timing.
+                        self.refreshIndividuals(groupJid: groupJid)
+                    }
                 }
             }
         }

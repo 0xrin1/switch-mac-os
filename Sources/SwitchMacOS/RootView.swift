@@ -30,7 +30,7 @@ private struct DirectoryShellView: View {
             ColumnList(title: "Groups", items: directory.groups, selected: directory.navigationSelection) { item in
                 directory.selectGroup(item)
             }
-            ColumnList(title: "Individuals", items: directory.individuals, selected: directory.navigationSelection) { item in
+            ColumnList(title: "Sessions", items: directory.individuals, selected: directory.navigationSelection) { item in
                 directory.selectIndividual(item)
             }
             ColumnList(title: "Subagents", items: directory.subagents, selected: directory.navigationSelection) { item in
@@ -70,7 +70,7 @@ private struct DirectoryShellView: View {
         case .dispatcher(let jid):
             return "Dispatcher: \(jid)"
         case .individual(let jid):
-            return "Individual: \(jid)"
+            return "Session: \(jid)"
         case .subagent(let jid):
             return "Subagent: \(jid)"
         }
@@ -102,6 +102,8 @@ private struct ColumnList: View {
                 Row(item: item, isSelected: isSelected(item))
                     .contentShape(Rectangle())
                     .onTapGesture { onSelect(item) }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(isSelected(item) ? Color.accentColor.opacity(0.16) : Color.clear)
             }
             .listStyle(.inset)
         }
@@ -123,14 +125,11 @@ private struct ColumnList: View {
 
         var body: some View {
             HStack(spacing: 8) {
-                Circle()
-                    .fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.35))
-                    .frame(width: 7, height: 7)
                 Text(item.name)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 6)
         }
     }
 }
@@ -198,7 +197,7 @@ private struct ChatPane: View {
 private struct EmptyChatView: View {
     var body: some View {
         VStack(spacing: 10) {
-            Text("Select a dispatcher, individual, or subagent")
+            Text("Select a dispatcher, session, or subagent")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
             Text("Groups only filter the hierarchy and do not change the chat.")
                 .font(.system(size: 12, weight: .regular, design: .default))
