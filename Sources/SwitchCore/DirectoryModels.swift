@@ -36,9 +36,9 @@ public extension ChatTarget {
 
 public struct SwitchDirectoryNodes: Sendable {
     public var dispatchers: String = "dispatchers"
-    public var groups: (String) -> String = { dispatcherJid in "groups:\(dispatcherJid)" }
-    public var individuals: (String) -> String = { groupJid in "individuals:\(groupJid)" }
-    public var subagents: (String) -> String = { individualJid in "subagents:\(individualJid)" }
+    public var groups: @Sendable (String) -> String = { dispatcherJid in "groups:\(dispatcherJid)" }
+    public var individuals: @Sendable (String) -> String = { groupJid in "individuals:\(groupJid)" }
+    public var subagents: @Sendable (String) -> String = { individualJid in "subagents:\(individualJid)" }
 
     public init() {}
 }

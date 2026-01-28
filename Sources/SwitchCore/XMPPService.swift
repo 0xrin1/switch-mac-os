@@ -241,7 +241,7 @@ public final class XMPPService: ObservableObject {
     }
 
     public func disconnect() {
-        client.disconnect()
+        _ = client.disconnect()
     }
 
     public func sendMessage(to bareJid: String, body: String) {
@@ -421,7 +421,7 @@ public final class XMPPService: ObservableObject {
         if let ok = found.first(where: { $0.maxSize >= byteCount }) {
             return ok
         }
-        throw XMPPError.not_acceptable
+        throw XMPPError.not_acceptable()
     }
 
     private func putUpload(data: Data, to url: URL, mime: String, extraHeaders: [String: String]) async throws {
