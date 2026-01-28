@@ -10,7 +10,7 @@ struct RootView: View {
             if let error = model.configError {
                 ConfigErrorView(error: error)
             } else if let directory = model.directory {
-                DirectoryShellView(directory: directory, xmpp: model.xmpp)
+                DirectoryShellView(directory: directory, xmpp: model.xmpp, chatStore: model.xmpp.chatStore)
             } else {
                 NoDirectoryView(statusText: model.xmpp.statusText)
             }
@@ -21,6 +21,7 @@ struct RootView: View {
 private struct DirectoryShellView: View {
     @ObservedObject var directory: SwitchDirectoryService
     @ObservedObject var xmpp: XMPPService
+    @ObservedObject var chatStore: ChatStore
     @State private var composerText: String = ""
 
     var body: some View {
@@ -34,7 +35,7 @@ private struct DirectoryShellView: View {
 
             ChatPane(
                 title: chatTitle,
-                messages: directory.messagesForActiveChat(),
+                messages: messagesForActiveChat(),
                 composerText: $composerText,
                 onSend: {
                     let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -69,6 +70,11 @@ private struct DirectoryShellView: View {
         case .subagent(let jid):
             return "Subagent: \(jid)"
         }
+    }
+
+    private func messagesForActiveChat() -> [ChatMessage] {
+        guard let target = directory.chatTarget else { return [] }
+        return chatStore.messages(for: target.jid)
     }
 }
 
