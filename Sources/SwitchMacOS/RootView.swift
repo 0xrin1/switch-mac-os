@@ -269,8 +269,9 @@ private struct MarkdownMessage: View {
     let content: String
 
     var bodyView: some View {
+        let normalized = normalize(content)
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(parseMarkdownBlocks(content), id: \.id) { block in
+            ForEach(parseMarkdownBlocks(normalized), id: \.id) { block in
                 switch block.kind {
                 case .markdown(let s):
                     markdownText(s)
@@ -288,51 +289,56 @@ private struct MarkdownMessage: View {
     }
 
     private func markdownText(_ s: String) -> some View {
-        // Preserve blank lines (paragraph breaks), but treat single newlines as
-        // intentional line breaks (LLM output often uses them for layout).
-        // Use a Markdown hard-break escape ("\\" at EOL) instead of trailing
-        // spaces, since the Swift markdown parser may trim end-of-line spaces.
-        var normalized = s
+        let attr = (try? AttributedString(markdown: s)) ?? AttributedString(s)
+        return Text(attr)
+            .font(.system(size: 13, weight: .regular, design: .default))
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func normalize(_ s: String) -> String {
+        // Normalize line endings first.
+        var out = s
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\u{2028}", with: "\n")
             .replacingOccurrences(of: "\u{2029}", with: "\n")
 
-        // Some upstream messages arrive with backslash-escaped punctuation and
-        // newlines (e.g. "\\n", "\\[", "\\""). Unescape the common cases so
-        // they render naturally.
-        if normalized.contains("\\") {
-            normalized = normalized
-                .replacingOccurrences(of: "\\\\n", with: "\n")
-                .replacingOccurrences(of: "\\\\t", with: "\t")
-                .replacingOccurrences(of: "\\\\\"", with: "\"")
-                .replacingOccurrences(of: "\\\\'", with: "'")
-                .replacingOccurrences(of: "\\\\[", with: "[")
-                .replacingOccurrences(of: "\\\\]", with: "]")
-                .replacingOccurrences(of: "\\\\(", with: "(")
-                .replacingOccurrences(of: "\\\\)", with: ")")
-                .replacingOccurrences(of: "\\\\{", with: "{")
-                .replacingOccurrences(of: "\\\\}", with: "}")
-                .replacingOccurrences(of: "\\\\<", with: "<")
-                .replacingOccurrences(of: "\\\\>", with: ">")
-                .replacingOccurrences(of: "\\\\“", with: "“")
-                .replacingOccurrences(of: "\\\\”", with: "”")
-                .replacingOccurrences(of: "\\\\’", with: "’")
-                .replacingOccurrences(of: "\\\\‘", with: "‘")
+        // Unescape common sequences that show up in logged/serialized output.
+        // Example: "\\n" should render as a newline.
+        if out.contains("\\") {
+            out = out
+                .replacingOccurrences(of: "\\\\", with: "\\")
+                .replacingOccurrences(of: "\\n", with: "\n")
+                .replacingOccurrences(of: "\\t", with: "\t")
+                .replacingOccurrences(of: "\\\"", with: "\"")
+                .replacingOccurrences(of: "\\'", with: "'")
+                .replacingOccurrences(of: "\\[", with: "[")
+                .replacingOccurrences(of: "\\]", with: "]")
+                .replacingOccurrences(of: "\\(", with: "(")
+                .replacingOccurrences(of: "\\)", with: ")")
+                .replacingOccurrences(of: "\\{", with: "{")
+                .replacingOccurrences(of: "\\}", with: "}")
         }
 
-        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let hardWrappedLines = lines.map { line in
-            if line.isEmpty { return "" }
-            if line.hasSuffix("\\") { return line }
-            return line + "\\"
+        // If this looks like command/session logs, render as a single code block
+        // to preserve whitespace exactly.
+        if looksLikeLogs(out) {
+            return "```text\n" + out + "\n```"
         }
-        let hardWrapped = hardWrappedLines.joined(separator: "\n")
-        let attr = (try? AttributedString(markdown: hardWrapped)) ?? AttributedString(normalized)
-        return Text(attr)
-            .font(.system(size: 13, weight: .regular, design: .default))
-            .foregroundStyle(.primary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+        return out
+    }
+
+    private func looksLikeLogs(_ s: String) -> Bool {
+        // Heuristic: bracketed tool tags or timestamped lines.
+        if s.contains("[Bash:") || s.contains("[Task]") || s.contains("[Glob]") || s.contains("[TodoWrite]") {
+            return true
+        }
+        if s.contains("] Last") && s.contains("[00:") {
+            return true
+        }
+        return false
     }
 
     private func codeBlock(_ s: String) -> some View {
