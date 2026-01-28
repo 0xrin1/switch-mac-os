@@ -1,5 +1,7 @@
 # switch-mac-os
 
+> **Note:** This project is vibe coded and heavily WIP. Expect rough edges, breaking changes, and incomplete features.
+
 ## Overview
 
 A custom macOS XMPP client built with SwiftUI using the **Tigase Martin** library. It renders a 2-column directory (Dispatchers/Sessions) and keeps a chat panel always visible.
