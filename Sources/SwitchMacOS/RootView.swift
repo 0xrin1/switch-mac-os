@@ -196,16 +196,35 @@ private struct ChatPane: View {
         let msg: ChatMessage
 
         var body: some View {
-            HStack(alignment: .top, spacing: 10) {
-                Text(msg.direction == .incoming ? "IN" : "OUT")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(msg.direction == .incoming ? .secondary : .primary)
-                    .frame(width: 34, alignment: .leading)
+            HStack {
+                if msg.direction == .outgoing {
+                    Spacer(minLength: 32)
+                }
+
                 Text(msg.body)
                     .font(.system(size: 13, weight: .regular, design: .default))
-                Spacer(minLength: 0)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(bubbleColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .frame(maxWidth: 520, alignment: msg.direction == .incoming ? .leading : .trailing)
+
+                if msg.direction == .incoming {
+                    Spacer(minLength: 32)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: msg.direction == .incoming ? .leading : .trailing)
             .padding(.vertical, 4)
+        }
+
+        private var bubbleColor: Color {
+            switch msg.direction {
+            case .incoming:
+                return Color.secondary.opacity(0.12)
+            case .outgoing:
+                return Color.accentColor.opacity(0.18)
+            }
         }
     }
 }
