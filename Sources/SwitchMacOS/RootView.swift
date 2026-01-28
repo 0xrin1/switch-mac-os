@@ -295,10 +295,6 @@ private struct ChatPane: View {
             msg.meta?.isToolRelated ?? false
         }
 
-        private var hasRunStats: Bool {
-            msg.meta?.type == .runStats
-        }
-
         var body: some View {
             HStack {
                 if msg.direction == .outgoing {
@@ -399,22 +395,18 @@ private struct ChatPane: View {
 
         private func formatTimestamp(_ date: Date) -> String {
             let calendar = Calendar.current
-            let now = Date()
+            let formatter = DateFormatter()
 
             if calendar.isDateInToday(date) {
-                let formatter = DateFormatter()
                 formatter.dateFormat = "h:mm a"
                 return formatter.string(from: date)
             } else if calendar.isDateInYesterday(date) {
-                let formatter = DateFormatter()
                 formatter.dateFormat = "h:mm a"
                 return "Yesterday \(formatter.string(from: date))"
-            } else if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) {
-                let formatter = DateFormatter()
+            } else if calendar.isDate(date, equalTo: Date(), toGranularity: .weekOfYear) {
                 formatter.dateFormat = "EEEE h:mm a"
                 return formatter.string(from: date)
             } else {
-                let formatter = DateFormatter()
                 formatter.dateFormat = "MMM d, h:mm a"
                 return formatter.string(from: date)
             }
@@ -547,7 +539,7 @@ private struct MarkdownMessage: View {
     let content: String
 
     var body: some View {
-        let normalized = normalize(preprocess(content))
+        let normalized = normalize(content)
 
         VStack(alignment: .leading, spacing: 10) {
             ForEach(parseMarkdownBlocks(normalized), id: \.id) { block in
@@ -572,7 +564,8 @@ private struct MarkdownMessage: View {
             .filter { !$0.isEmpty }
 
         return VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, para in
+            ForEach(paragraphs.indices, id: \.self) { i in
+                let para = paragraphs[i]
                 if containsMarkdownSyntax(para) {
                     // For lines within a paragraph, convert \n to hard breaks.
                     let hardBreaks = para.replacingOccurrences(of: "\n", with: "  \n")
@@ -640,12 +633,6 @@ private struct MarkdownMessage: View {
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\u{2028}", with: "\n")
             .replacingOccurrences(of: "\u{2029}", with: "\n")
-    }
-
-    private func preprocess(_ s: String) -> String {
-        // No content-based preprocessing needed - tool messages are now
-        // identified via XMPP message metadata and rendered separately
-        return s
     }
 
     private func codeBlock(_ s: String) -> some View {
