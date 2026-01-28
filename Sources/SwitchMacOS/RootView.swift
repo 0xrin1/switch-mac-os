@@ -215,7 +215,7 @@ private struct ChatPane: View {
                     Spacer(minLength: 32)
                 }
 
-                MarkdownMessage(body: msg.body)
+                MarkdownMessage(content: msg.body)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .background(bubbleColor)
@@ -242,11 +242,11 @@ private struct ChatPane: View {
 }
 
 private struct MarkdownMessage: View {
-    let body: String
+    let content: String
 
     var bodyView: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(parseMarkdownBlocks(body), id: \.id) { block in
+            ForEach(parseMarkdownBlocks(content), id: \.id) { block in
                 switch block.kind {
                 case .markdown(let s):
                     markdownText(s)
