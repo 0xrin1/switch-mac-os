@@ -6,19 +6,71 @@ public struct MessageMeta: Hashable, Sendable {
     public enum MetaType: String, Sendable {
         case tool
         case toolResult = "tool-result"
+        case runStats = "run-stats"
         case unknown
     }
 
     public let type: MetaType
     public let tool: String?
+    public let runStats: RunStats?
 
-    public init(type: MetaType, tool: String? = nil) {
+    public init(type: MetaType, tool: String? = nil, runStats: RunStats? = nil) {
         self.type = type
         self.tool = tool
+        self.runStats = runStats
     }
 
     public var isToolRelated: Bool {
         type == .tool || type == .toolResult
+    }
+}
+
+public struct RunStats: Hashable, Sendable {
+    public let engine: String?
+    public let model: String?
+    public let tokensIn: String?
+    public let tokensOut: String?
+    public let tokensReasoning: String?
+    public let tokensCacheRead: String?
+    public let tokensCacheWrite: String?
+    public let tokensTotal: String?
+    public let contextWindow: String?
+    public let turns: String?
+    public let toolCount: String?
+    public let costUsd: String?
+    public let durationS: String?
+    public let summary: String?
+
+    public init(
+        engine: String? = nil,
+        model: String? = nil,
+        tokensIn: String? = nil,
+        tokensOut: String? = nil,
+        tokensReasoning: String? = nil,
+        tokensCacheRead: String? = nil,
+        tokensCacheWrite: String? = nil,
+        tokensTotal: String? = nil,
+        contextWindow: String? = nil,
+        turns: String? = nil,
+        toolCount: String? = nil,
+        costUsd: String? = nil,
+        durationS: String? = nil,
+        summary: String? = nil
+    ) {
+        self.engine = engine
+        self.model = model
+        self.tokensIn = tokensIn
+        self.tokensOut = tokensOut
+        self.tokensReasoning = tokensReasoning
+        self.tokensCacheRead = tokensCacheRead
+        self.tokensCacheWrite = tokensCacheWrite
+        self.tokensTotal = tokensTotal
+        self.contextWindow = contextWindow
+        self.turns = turns
+        self.toolCount = toolCount
+        self.costUsd = costUsd
+        self.durationS = durationS
+        self.summary = summary
     }
 }
 

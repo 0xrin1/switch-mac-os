@@ -26,10 +26,20 @@ private struct DirectoryShellView: View {
 
     var body: some View {
         HSplitView {
-            ColumnList(title: "Dispatchers", items: directory.dispatchers, selectedJid: directory.selectedDispatcherJid) { item in
+            ColumnList(
+                title: "Dispatchers",
+                items: directory.dispatchers,
+                selectedJid: directory.selectedDispatcherJid,
+                composingJids: dispatchersWithComposingSessions
+            ) { item in
                 directory.selectDispatcher(item)
             }
-            ColumnList(title: "Sessions", items: directory.individuals, selectedJid: directory.selectedSessionJid) { item in
+            ColumnList(
+                title: "Sessions",
+                items: directory.individuals,
+                selectedJid: directory.selectedSessionJid,
+                composingJids: xmpp.composingJids
+            ) { item in
                 directory.selectIndividual(item)
             }
 
@@ -43,7 +53,8 @@ private struct DirectoryShellView: View {
                     directory.sendChat(body: trimmed)
                     composerText = ""
                 },
-                isEnabled: directory.chatTarget != nil
+                isEnabled: directory.chatTarget != nil,
+                isTyping: isChatTargetTyping
             )
         }
         .toolbar {
@@ -76,12 +87,26 @@ private struct DirectoryShellView: View {
         guard let target = directory.chatTarget else { return [] }
         return chatStore.messages(for: target.jid)
     }
+
+    /// Returns set of dispatcher JIDs that have at least one composing session
+    private var dispatchersWithComposingSessions: Set<String> {
+        // For now, if any session is composing, we don't have a direct mapping
+        // to dispatcher. Return empty - we'll show indicators on sessions only.
+        // TODO: Track dispatcher->session relationship for this feature
+        return []
+    }
+
+    private var isChatTargetTyping: Bool {
+        guard let target = directory.chatTarget else { return false }
+        return xmpp.composingJids.contains(target.jid)
+    }
 }
 
 private struct ColumnList: View {
     let title: String
     let items: [DirectoryItem]
     let selectedJid: String?
+    let composingJids: Set<String>
     let onSelect: (DirectoryItem) -> Void
 
     var body: some View {
@@ -100,7 +125,7 @@ private struct ColumnList: View {
             Divider()
 
             List(items) { item in
-                Row(item: item, isSelected: isSelected(item))
+                Row(item: item, isSelected: isSelected(item), isComposing: composingJids.contains(item.jid))
                     .contentShape(Rectangle())
                     .onTapGesture { onSelect(item) }
                     .listRowSeparator(.hidden)
@@ -118,12 +143,18 @@ private struct ColumnList: View {
     private struct Row: View {
         let item: DirectoryItem
         let isSelected: Bool
+        let isComposing: Bool
 
         var body: some View {
             HStack(spacing: 8) {
                 Text(item.name)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                if isComposing {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 16, height: 16)
+                }
             }
             .padding(.vertical, 6)
         }
@@ -136,6 +167,7 @@ private struct ChatPane: View {
     @Binding var composerText: String
     let onSend: () -> Void
     let isEnabled: Bool
+    let isTyping: Bool
 
     private let bottomAnchorId: String = "__bottom__"
     private let composerMinHeight: CGFloat = 28
@@ -147,6 +179,14 @@ private struct ChatPane: View {
             HStack {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
+                if isTyping {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 14, height: 14)
+                    Text("typing...")
+                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
             }
             .padding(.horizontal, 12)
@@ -263,6 +303,10 @@ private struct ChatPane: View {
             msg.meta?.isToolRelated ?? false
         }
 
+        private var hasRunStats: Bool {
+            msg.meta?.type == .runStats
+        }
+
         var body: some View {
             HStack {
                 if msg.direction == .outgoing {
@@ -291,6 +335,9 @@ private struct ChatPane: View {
                                 .background(Color.secondary.opacity(0.1))
                                 .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                         }
+                        if let stats = msg.meta?.runStats {
+                            runStatsView(stats)
+                        }
                         Text(formatTimestamp(msg.timestamp))
                             .font(.system(size: 10, weight: .regular, design: .default))
                             .foregroundStyle(.secondary.opacity(0.7))
@@ -317,6 +364,36 @@ private struct ChatPane: View {
                 .background(Color.black.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .frame(maxWidth: 520, alignment: .leading)
+        }
+
+        @ViewBuilder
+        private func runStatsView(_ stats: RunStats) -> some View {
+            HStack(spacing: 4) {
+                if let model = stats.model {
+                    Text(model)
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                }
+                if let tokensIn = stats.tokensIn, let tokensOut = stats.tokensOut {
+                    Text("\(tokensIn)/\(tokensOut)tok")
+                        .font(.system(size: 9, weight: .regular, design: .monospaced))
+                } else if let tokensTotal = stats.tokensTotal {
+                    Text("\(tokensTotal)tok")
+                        .font(.system(size: 9, weight: .regular, design: .monospaced))
+                }
+                if let cost = stats.costUsd {
+                    Text("$\(cost)")
+                        .font(.system(size: 9, weight: .regular, design: .monospaced))
+                }
+                if let duration = stats.durationS {
+                    Text("\(duration)s")
+                        .font(.system(size: 9, weight: .regular, design: .monospaced))
+                }
+            }
+            .foregroundStyle(.secondary.opacity(0.7))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Color.secondary.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
         }
 
         private var bubbleColor: Color {

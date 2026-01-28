@@ -9,7 +9,7 @@ public let switchMetaNamespace = "urn:switch:message-meta"
 
 /// Parse Switch message metadata from an XMPP message element
 public func parseMessageMeta(from element: Element) -> MessageMeta? {
-    // Look for direct child: <meta xmlns="urn:switch:message-meta" type="..." tool="..."/>
+    // Look for direct child: <meta xmlns="urn:switch:message-meta" type="..." .../>
     guard let metaElement = element.findChild(name: "meta", xmlns: switchMetaNamespace) else {
         return nil
     }
@@ -24,13 +24,36 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
         metaType = .tool
     case "tool-result":
         metaType = .toolResult
+    case "run-stats":
+        metaType = .runStats
     default:
         metaType = .unknown
     }
 
     let tool = metaElement.attribute("tool")
 
-    return MessageMeta(type: metaType, tool: tool)
+    // Parse run-stats attributes if present
+    var runStats: RunStats? = nil
+    if metaType == .runStats {
+        runStats = RunStats(
+            engine: metaElement.attribute("engine"),
+            model: metaElement.attribute("model"),
+            tokensIn: metaElement.attribute("tokens_in"),
+            tokensOut: metaElement.attribute("tokens_out"),
+            tokensReasoning: metaElement.attribute("tokens_reasoning"),
+            tokensCacheRead: metaElement.attribute("tokens_cache_read"),
+            tokensCacheWrite: metaElement.attribute("tokens_cache_write"),
+            tokensTotal: metaElement.attribute("tokens_total"),
+            contextWindow: metaElement.attribute("context_window"),
+            turns: metaElement.attribute("turns"),
+            toolCount: metaElement.attribute("tool_count"),
+            costUsd: metaElement.attribute("cost_usd"),
+            durationS: metaElement.attribute("duration_s"),
+            summary: metaElement.attribute("summary")
+        )
+    }
+
+    return MessageMeta(type: metaType, tool: tool, runStats: runStats)
 }
 
 class DebugStreamLogger: StreamLogger {
@@ -61,17 +84,22 @@ public final class XMPPService: ObservableObject {
     private let messageModule: MessageModule
     private let pubSubModule: PubSubModule
     private let mamModule: MessageArchiveManagementModule
+    private let chatStateModule: ChatStateNotificationsModule
     private var cancellables: Set<AnyCancellable> = []
 
     private var mamQueryToThread: [String: String] = [:]
     private var historyLoadedThreads: Set<String> = []
     private var historyLoadingThreads: Set<String> = []
 
+    /// JIDs currently in "composing" (typing) state
+    @Published public private(set) var composingJids: Set<String> = []
+
     public init() {
         let chatManager = DefaultChatManager(store: DefaultChatStore())
         self.messageModule = MessageModule(chatManager: chatManager)
         self.pubSubModule = PubSubModule()
         self.mamModule = MessageArchiveManagementModule()
+        self.chatStateModule = ChatStateNotificationsModule()
 
         registerDefaultModules()
         bindPublishers()
@@ -183,9 +211,11 @@ public final class XMPPService: ObservableObject {
         client.modulesManager.register(SoftwareVersionModule())
         client.modulesManager.register(PingModule())
         client.modulesManager.register(PresenceModule())
+        client.modulesManager.register(CapabilitiesModule())
         client.modulesManager.register(mamModule)
         client.modulesManager.register(messageModule)
         client.modulesManager.register(pubSubModule)
+        client.modulesManager.register(chatStateModule)
     }
 
     private func bindPublishers() {
@@ -214,7 +244,21 @@ public final class XMPPService: ObservableObject {
             .sink { [weak self] received in
                 guard let self else { return }
                 guard let from = received.message.from?.bareJid.stringValue else { return }
+
+                // Track chat state (typing indicators)
+                if let chatState = received.message.chatState {
+                    switch chatState {
+                    case .composing:
+                        self.composingJids.insert(from)
+                    case .active, .inactive, .paused, .gone:
+                        self.composingJids.remove(from)
+                    }
+                }
+
+                // Process message body if present
                 guard let body = received.message.body else { return }
+                // Receiving a message with body means they're done typing
+                self.composingJids.remove(from)
                 let meta = parseMessageMeta(from: received.message.element)
                 self.chatStore.appendIncoming(threadJid: from, body: body, id: received.message.id, timestamp: received.message.delay?.stamp ?? Date(), meta: meta)
             }
