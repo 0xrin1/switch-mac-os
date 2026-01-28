@@ -329,55 +329,12 @@ private struct MarkdownMessage: View {
     }
 
     private func normalize(_ s: String) -> String {
-        // Normalize line endings first.
-        var out = s
+        // Normalize line endings only — don't mangle the content.
+        return s
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\u{2028}", with: "\n")
             .replacingOccurrences(of: "\u{2029}", with: "\n")
-
-        // Unescape common sequences that show up in logged/serialized output.
-        // Example: "\\n" should render as a newline.
-        if out.contains("\\") {
-            out = out
-                .replacingOccurrences(of: "\\\\", with: "\\")
-                .replacingOccurrences(of: "\\n", with: "\n")
-                .replacingOccurrences(of: "\\t", with: "\t")
-                .replacingOccurrences(of: "\\\"", with: "\"")
-                .replacingOccurrences(of: "\\'", with: "'")
-                .replacingOccurrences(of: "\\[", with: "[")
-                .replacingOccurrences(of: "\\]", with: "]")
-                .replacingOccurrences(of: "\\(", with: "(")
-                .replacingOccurrences(of: "\\)", with: ")")
-                .replacingOccurrences(of: "\\{", with: "{")
-                .replacingOccurrences(of: "\\}", with: "}")
-        }
-
-        // If this looks like command/session logs, render as a single code block
-        // to preserve whitespace exactly.
-        if looksLikeLogs(out) {
-            return "```text\n" + out + "\n```"
-        }
-
-        // Some models emit structured markdown without newlines between tokens
-        // (e.g. "#IssueSeverity" or "1Duplicated"). This is hard to render
-        // readably; insert a few safe breaks.
-        out = out
-            .replacingOccurrences(of: "#", with: "\n#")
-            .replacingOccurrences(of: "—", with: " — ")
-
-        return out
-    }
-
-    private func looksLikeLogs(_ s: String) -> Bool {
-        // Heuristic: bracketed tool tags or timestamped lines.
-        if s.contains("[Bash:") || s.contains("[Task]") || s.contains("[Glob]") || s.contains("[TodoWrite]") {
-            return true
-        }
-        if s.contains("] Last") && s.contains("[00:") {
-            return true
-        }
-        return false
     }
 
     private func codeBlock(_ s: String) -> some View {
