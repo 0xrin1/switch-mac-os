@@ -2,36 +2,33 @@
 
 ## Overview
 
-A custom macOS XMPP client built with SwiftUI using the **Tigase Martin** library. It renders a 4-column hierarchy (Dispatchers/Groups/Individuals/Subagents) and keeps a chat panel always visible.
+A custom macOS XMPP client built with SwiftUI using the **Tigase Martin** library. It renders a 2-column directory (Dispatchers/Sessions) and keeps a chat panel always visible.
 
 ## Architecture
 
-### Four-Column Hierarchy + Always-Visible Chat
+### Two-Column Directory + Always-Visible Chat
 
 | Pane | Content | Behavior |
 |------|---------|----------|
-| **1** | Dispatchers | Selecting filters Groups + opens dispatcher chat |
-| **2** | Groups (MUC rooms) | Selecting filters Individuals (no chat switch) |
-| **3** | Individuals | Selecting filters Subagents + opens 1:1 chat |
-| **4** | Subagents | Selecting opens 1:1 chat |
+| **1** | Dispatchers | Selecting loads Sessions + opens dispatcher chat |
+| **2** | Sessions | Selecting opens 1:1 chat + loads history |
 | **Chat** | Chat panel | Always visible; shows welcome state when no chat target |
 
 ### Selection Behavior
 
-- **Single selection** across the 4 hierarchy panes at any time
-- Selection in a parent column filters the child column(s)
-- Clicking a dispatcher → shows only that dispatcher's groups in Column 2
-- Clicking a group → shows only that group's individuals in Column 3
-- Clicking an individual → shows that individual's subagents in Column 4
-- Chat panel shows the current chat target (group selection does not change it)
+- **Dispatcher selection** drives the Sessions list
+- Clicking a dispatcher → shows only that dispatcher's sessions in Column 2
+- Clicking a session → opens 1:1 chat and loads history
+- Chat panel shows the current chat target
 
 ### Chat Panel
 
 - **Always visible** on the right side of the sidebar
 - Shows **welcome/empty state** when nothing is selected (subtle design)
-- Displays **1:1 chat** when an individual or subagent is selected
+- Displays **1:1 chat** when a session is selected
 - Displays **1:1 chat** when a dispatcher is selected
-- Does **not** switch the chat when a group is selected (group selection is navigation/filtering)
+- Auto-scrolls to the latest message
+- Renders basic Markdown formatting (bold, inline code, code blocks, lists)
 
 ## Technical Stack
 
@@ -81,10 +78,11 @@ The pubsub payload is treated as a lightweight "refresh ping"; the client refres
 - `individuals:<groupJid>`
 - `subagents:<individualJid>`
 
+Note: the current UI only renders Dispatchers + Sessions, but the directory protocol remains hierarchical so we can add filtering/grouping later.
+
 ## XMPP Features Required
 
 ### Core (Tigase Martin Built-in)
-- XEP-0045: Multi-User Chat (MUC) - for groups
 - XEP-0198: Stream Management - for reconnection
 - XEP-0280: Message Carbons - for multi-device sync
 - XEP-0313: Message Archive Management (MAM) - for history
@@ -93,26 +91,22 @@ The pubsub payload is treated as a lightweight "refresh ping"; the client refres
 ### Contact Types (All Standard XMPP JIDs)
 
 1. **Dispatchers** - Standard XMPP contacts
-2. **Groups** - MUC rooms (XEP-0045)
-3. **Individuals** - Standard XMPP contacts
-4. **Subagents** - Standard XMPP contacts (spawned by other agents)
+2. **Sessions** - Standard XMPP contacts
 
 ## Data Flow
 
 ```
 Dispatcher selected
     ↓
-Filter groups to dispatcher's groups
+Fetch groups for dispatcher (internal)
     ↓
-Group selected
+Fetch sessions from group(s)
     ↓
-Filter individuals to group's members
+Session selected
     ↓
-Individual selected
-    ↓
-Show individual's subagents + open chat
+Open chat + load history
 
-## How We Model The 4-Column Hierarchy In XMPP
+## How We Model The Hierarchy In XMPP
 
 Presence/status text is good for online state, but it's not a reliable place to encode durable classification (dispatcher vs session vs subagent) or parent/child relationships.
 
@@ -124,16 +118,9 @@ Decision: use standard discovery + subscriptions, with Switch as the source of t
   - The service returns structured lists:
     - dispatchers
     - groups for a dispatcher
-    - individuals for a group
-    - subagents for an individual
+    - individuals (sessions) for a group
 - **Client behavior**: the client renders columns from directory results; it uses standard message/presence/roster for chat + online indicators.
 
-## Subagent Final Response Behavior
-
-Subagents are treated like normal XMPP contacts for chat/presence. The key behavioral difference is that a subagent's work output must be delivered back to the agent/contact that spawned it.
-
-- Work messages include a task id and parent reference (e.g. `task_id`, `parent_jid`).
-- The subagent sends the final response to `parent_jid` (and optionally also to the currently active chat, depending on UX).
 ```
 
 ## UI States
@@ -151,6 +138,6 @@ Subagents are treated like normal XMPP contacts for chat/presence. The key behav
 
 ## Future Considerations
 
-- Subagents primarily exist to do work for their parent session/contact
-- Backend assumes support for agent spawning
+- Re-introduce Groups as a UI filter when it becomes useful
+- Subagents can be added back as a separate view when we want agent spawning UX
 - All contact types use standard XMPP protocol
