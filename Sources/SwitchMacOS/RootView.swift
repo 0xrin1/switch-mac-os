@@ -141,7 +141,7 @@ private struct ChatPane: View {
     let onSend: () -> Void
     let isEnabled: Bool
 
-    @State private var lastScrolledMessageId: ChatMessage.ID? = nil
+    private let bottomAnchorId: String = "__bottom__"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -165,6 +165,9 @@ private struct ChatPane: View {
                                 MessageRow(msg: msg)
                                     .id(msg.id)
                             }
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchorId)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
@@ -174,6 +177,9 @@ private struct ChatPane: View {
                         scrollToBottom(using: proxy)
                     }
                     .onChange(of: messages.count) { _ in
+                        scrollToBottom(using: proxy)
+                    }
+                    .onChange(of: title) { _ in
                         scrollToBottom(using: proxy)
                     }
                 }
@@ -195,11 +201,8 @@ private struct ChatPane: View {
 
     private func scrollToBottom(using proxy: ScrollViewProxy) {
         guard isEnabled else { return }
-        guard let lastId = messages.last?.id else { return }
-        guard lastScrolledMessageId != lastId else { return }
-        lastScrolledMessageId = lastId
         DispatchQueue.main.async {
-            proxy.scrollTo(lastId, anchor: .bottom)
+            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
         }
     }
 
@@ -261,7 +264,12 @@ private struct MarkdownMessage: View {
     }
 
     private func markdownText(_ s: String) -> some View {
-        let attr = (try? AttributedString(markdown: s)) ?? AttributedString(s)
+        // LLM-style output often uses single newlines for layout. Convert them
+        // to Markdown hard breaks so they render as expected.
+        let hardWrapped = s
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\n", with: "  \n")
+        let attr = (try? AttributedString(markdown: hardWrapped)) ?? AttributedString(s)
         return Text(attr)
             .font(.system(size: 13, weight: .regular, design: .default))
             .foregroundStyle(.primary)
