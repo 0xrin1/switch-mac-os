@@ -106,7 +106,7 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
     var payloadJson: String? = nil
     if let payloadElement = metaElement.children.first(where: { localName(of: $0.name) == "payload" }) {
         if (payloadElement.attribute("format") ?? "").lowercased() == "json" {
-            payloadJson = payloadElement.value
+            payloadJson = payloadElement.value?.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
@@ -116,14 +116,15 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
     }
 
     if metaType == .question, question == nil {
-        logger.debug("Question meta present but payload decode failed")
-        logger.debug("meta.name=\(metaElement.name, privacy: .public) meta.xmlns=\(metaElement.xmlns ?? "nil", privacy: .public)")
+        logger.notice("Question meta present but payload decode failed")
+        logger.notice("meta.name=\(metaElement.name, privacy: .public) meta.xmlns=\(metaElement.xmlns ?? "nil", privacy: .public)")
         let childNames = metaElement.children.map { "\($0.name)[\($0.xmlns ?? "nil")]" }.joined(separator: ", ")
-        logger.debug("meta.children=\(childNames, privacy: .public)")
+        logger.notice("meta.children=\(childNames, privacy: .public)")
         if let payloadElement = metaElement.children.first(where: { localName(of: $0.name) == "payload" }) {
-            logger.debug("payload.name=\(payloadElement.name, privacy: .public) payload.xmlns=\(payloadElement.xmlns ?? "nil", privacy: .public)")
-            logger.debug("payload.format=\((payloadElement.attribute("format") ?? "nil"), privacy: .public)")
-            logger.debug("payload.value=\((payloadElement.value ?? "nil"), privacy: .public)")
+            logger.notice("payload.name=\(payloadElement.name, privacy: .public) payload.xmlns=\(payloadElement.xmlns ?? "nil", privacy: .public)")
+            logger.notice("payload.format=\((payloadElement.attribute("format") ?? "nil"), privacy: .public)")
+            let val = payloadElement.value ?? ""
+            logger.notice("payload.value.len=\(val.count, privacy: .public)")
         }
     }
 
