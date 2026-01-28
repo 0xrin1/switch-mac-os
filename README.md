@@ -28,7 +28,58 @@ A custom macOS XMPP client built with SwiftUI using the **Tigase Martin** librar
 - Displays **1:1 chat** when a session is selected
 - Displays **1:1 chat** when a dispatcher is selected
 - Auto-scrolls to the latest message
-- Renders basic Markdown formatting (bold, inline code, code blocks, lists)
+- Renders Markdown formatting (bold, inline code, code blocks, lists)
+- **Message timestamps** displayed subtly below each message
+- **Typing indicators** show when contact is composing
+
+## Features
+
+### Message Metadata (Custom XMPP Extension)
+
+The client supports a custom message metadata extension for rich rendering:
+
+```xml
+<meta xmlns="urn:switch:message-meta" type="..." tool="..." />
+```
+
+**Supported meta types:**
+
+| Type | Rendering |
+|------|-----------|
+| `tool` | Monospace code block style |
+| `tool-result` | Monospace code block style |
+| `run-stats` | Normal markdown + stats footer badge |
+
+**Tool messages** display a badge with the tool name (e.g., "bash", "read", "edit").
+
+**Run stats** display a compact footer showing model, tokens, cost, and duration:
+```xml
+<meta xmlns="urn:switch:message-meta"
+      type="run-stats"
+      model="gpt-5.2"
+      tokens_in="824"
+      tokens_out="92"
+      cost_usd="0.000"
+      duration_s="158.8" />
+```
+
+### Typing Indicators (XEP-0085)
+
+- Shows spinner next to sessions that are typing
+- Shows spinner next to dispatchers when any of their sessions are typing
+- Shows "typing..." indicator in chat header
+
+### Recency Sorting
+
+- **Sessions** sorted by most recent message (newest at top)
+- **Dispatchers** sorted by most recent activity (newest at top)
+- Auto-re-sorts when new messages arrive
+
+### Text Styling
+
+- **Inline code**: Accent-colored background with white text
+- **Code blocks**: Monospace font with subtle background, text wrapping (no horizontal scroll)
+- **Improved spacing**: Better line height and paragraph separation
 
 ## Technical Stack
 
@@ -37,7 +88,7 @@ A custom macOS XMPP client built with SwiftUI using the **Tigase Martin** librar
   - Swift Package Manager integration
   - Modular XEP support
 - **Real-time Updates**: XMPP event backbone via ejabberd
-- **Platform**: macOS
+- **Platform**: macOS 13.0+
 
 ## Local Development
 
@@ -53,6 +104,13 @@ swift build
 .build/debug/SwitchMacOS
 ```
 
+### Building an app bundle
+
+```bash
+./bundle.sh
+open .build/SwitchMacOS.app
+```
+
 You can also pass env vars inline:
 
 ```bash
@@ -61,7 +119,13 @@ XMPP_HOST="..." XMPP_JID="..." XMPP_PASSWORD="..." SWITCH_DIRECTORY_JID="..." .b
 
 **Note:** Values in `.env` take precedence over environment variables passed on the command line.
 
-## Directory Service (Implemented: Option 1)
+### Running Tests
+
+```bash
+swift test
+```
+
+## Directory Service
 
 This client expects Switch to provide the hierarchy using:
 
@@ -80,13 +144,18 @@ The pubsub payload is treated as a lightweight "refresh ping"; the client refres
 
 Note: the current UI only renders Dispatchers + Sessions, but the directory protocol remains hierarchical so we can add filtering/grouping later.
 
-## XMPP Features Required
+## XMPP Features
 
 ### Core (Tigase Martin Built-in)
+- XEP-0030: Service Discovery - for directory hierarchy
+- XEP-0060: Publish-Subscribe - for real-time directory updates
+- XEP-0085: Chat State Notifications - for typing indicators
 - XEP-0198: Stream Management - for reconnection
 - XEP-0280: Message Carbons - for multi-device sync
 - XEP-0313: Message Archive Management (MAM) - for history
 
+### Custom Extensions
+- `urn:switch:message-meta` - for tool/run-stats message metadata
 
 ### Contact Types (All Standard XMPP JIDs)
 
@@ -105,6 +174,7 @@ Fetch sessions from group(s)
 Session selected
     ↓
 Open chat + load history
+```
 
 ## How We Model The Hierarchy In XMPP
 
@@ -121,8 +191,6 @@ Decision: use standard discovery + subscriptions, with Switch as the source of t
     - individuals (sessions) for a group
 - **Client behavior**: the client renders columns from directory results; it uses standard message/presence/roster for chat + online indicators.
 
-```
-
 ## UI States
 
 ### Welcome/Empty State
@@ -134,7 +202,8 @@ Decision: use standard discovery + subscriptions, with Switch as the source of t
 - Chat header shows contact/room name
 - Message history loaded via MAM
 - Real-time message delivery
-- Typing indicators (optional)
+- Typing indicators when contact is composing
+- Run stats badge on final assistant messages
 
 ## Future Considerations
 

@@ -549,7 +549,7 @@ private struct MarkdownMessage: View {
     var body: some View {
         let normalized = normalize(preprocess(content))
 
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(parseMarkdownBlocks(normalized), id: \.id) { block in
                 switch block.kind {
                 case .markdown(let s):
@@ -571,7 +571,7 @@ private struct MarkdownMessage: View {
             .map { $0.trimmingCharacters(in: .init(charactersIn: "\n")) }
             .filter { !$0.isEmpty }
 
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, para in
                 if containsMarkdownSyntax(para) {
                     // For lines within a paragraph, convert \n to hard breaks.
@@ -587,12 +587,19 @@ private struct MarkdownMessage: View {
 
     private func styleInlineCode(_ input: AttributedString) -> AttributedString {
         var result = input
+        // Find code ranges and style them
+        var codeRanges: [Range<AttributedString.Index>] = []
         for run in result.runs {
             if let intent = run.inlinePresentationIntent, intent.contains(.code) {
-                let range = run.range
-                result[range].backgroundColor = Color.accentColor.opacity(0.25)
-                result[range].foregroundColor = Color.white
+                codeRanges.append(run.range)
             }
+        }
+        // Apply styling to code ranges
+        for range in codeRanges {
+            result[range].backgroundColor = Color.accentColor.opacity(0.25)
+            result[range].foregroundColor = Color.white
+            // Add slight letter spacing for breathing room
+            result[range].kern = 0.3
         }
         return result
     }
@@ -603,7 +610,7 @@ private struct MarkdownMessage: View {
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
-            .lineSpacing(4)
+            .lineSpacing(6)
     }
 
     private func containsMarkdownSyntax(_ s: String) -> Bool {
