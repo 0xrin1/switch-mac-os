@@ -416,7 +416,7 @@ private struct MarkdownMessage: View {
     let content: String
 
     var body: some View {
-        let normalized = normalize(content)
+        let normalized = normalize(preprocess(content))
 
         VStack(alignment: .leading, spacing: 6) {
             ForEach(parseMarkdownBlocks(normalized), id: \.id) { block in
@@ -490,6 +490,17 @@ private struct MarkdownMessage: View {
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\u{2028}", with: "\n")
             .replacingOccurrences(of: "\u{2029}", with: "\n")
+    }
+
+    private func preprocess(_ s: String) -> String {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("[toolcall:"), trimmed.contains("]") else {
+            return s
+        }
+        guard !trimmed.contains("```") else {
+            return s
+        }
+        return "```\n\(trimmed)\n```"
     }
 
     private func codeBlock(_ s: String) -> some View {
