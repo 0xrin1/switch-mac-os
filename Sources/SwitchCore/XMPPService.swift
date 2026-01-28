@@ -37,8 +37,13 @@ public func buildSwitchMetaElement(type: String, tool: String? = nil, attrs: [St
 
 /// Parse Switch message metadata from an XMPP message element
 public func parseMessageMeta(from element: Element) -> MessageMeta? {
-    // Look for direct child: <meta xmlns="urn:switch:message-meta" type="..." .../>
-    guard let metaElement = element.findChild(name: "meta", xmlns: switchMetaNamespace) else {
+    // Look for direct child:
+    // <meta xmlns="urn:switch:message-meta" type="..."> ... </meta>
+    // Be tolerant of namespace prefixes in parsed element names.
+    guard let metaElement = element.firstChild(where: { child in
+        guard child.xmlns == switchMetaNamespace else { return false }
+        return child.name == "meta" || child.name.hasSuffix(":meta")
+    }) else {
         return nil
     }
 
@@ -68,8 +73,10 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
 
     // Parse JSON payload if present
     var payloadJson: String? = nil
-    if let payloadElement = metaElement.findChild(name: "payload", xmlns: switchMetaNamespace),
-       payloadElement.attribute("format") == "json" {
+    if let payloadElement = metaElement.firstChild(where: { child in
+        (child.name == "payload" || child.name.hasSuffix(":payload"))
+    }),
+        (payloadElement.attribute("format") ?? "").lowercased() == "json" {
         payloadJson = payloadElement.value
     }
 
