@@ -1023,27 +1023,35 @@ private final class SubmitTextView: NSTextView {
             }
         }
 
-        // NSImage(pasteboard:) only supports a limited set of pasteboard formats
-        // (notably TIFF/PDF). Screenshots are sometimes copied as PNG, so fall back
-        // to reading common image data types directly.
+        if let promises = pb.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver],
+           let promise = promises.first
+        {
+            let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent("switch-paste-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+            promise.receivePromisedFiles(atDestination: tmpDir, options: [:], operationQueue: .main) { url, _ in
+                self.onPasteFileUrls?([url])
+            }
+            return
+        }
+
+        // NSImage(pasteboard:) can miss common clipboard formats (e.g. PNG screenshots).
         if let img = NSImage(pasteboard: pb) {
             onPasteImage?(img)
             return
         }
-        let candidates: [NSPasteboard.PasteboardType] = [
-            .png,
-            .tiff,
-            NSPasteboard.PasteboardType("public.jpeg"),
-            NSPasteboard.PasteboardType("public.heic"),
-            NSPasteboard.PasteboardType("public.heif"),
-            NSPasteboard.PasteboardType("public.gif")
-        ]
-        if let t = pb.availableType(from: candidates),
-           let data = pb.data(forType: t),
-           let img = NSImage(data: data)
-        {
-            onPasteImage?(img)
-            return
+
+        if let items = pb.pasteboardItems {
+            for item in items {
+                for t in item.types {
+                    let id = t.rawValue
+                    guard let ut = UTType(id), ut.conforms(to: .image) else { continue }
+                    guard let data = item.data(forType: t) else { continue }
+                    if let img = NSImage(data: data) {
+                        onPasteImage?(img)
+                        return
+                    }
+                }
+            }
         }
         super.paste(sender)
     }
