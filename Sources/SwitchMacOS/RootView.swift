@@ -995,6 +995,18 @@ private final class SubmitTextView: NSTextView {
     var onPasteImage: ((NSImage) -> Void)?
     var onPasteFileUrls: (([URL]) -> Void)?
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // SwiftUI/AppKit key equivalent routing can be finicky; ensure Cmd+V triggers
+        // our custom paste handler whenever this view is focused.
+        if event.modifierFlags.contains(.command),
+           (event.charactersIgnoringModifiers ?? "").lowercased() == "v"
+        {
+            paste(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         let isReturnKey = (event.keyCode == 36) || (event.keyCode == 76)
         let isShiftPressed = event.modifierFlags.contains(.shift)
@@ -1040,17 +1052,36 @@ private final class SubmitTextView: NSTextView {
             return
         }
 
+        // Some clipboard images (including screenshots) are easier to decode via bitmap reps.
+        if let rep = NSBitmapImageRep(pasteboard: pb) {
+            let img = NSImage(size: rep.size)
+            img.addRepresentation(rep)
+            onPasteImage?(img)
+            return
+        }
+
         if let items = pb.pasteboardItems {
             for item in items {
                 for t in item.types {
                     let id = t.rawValue
                     guard let ut = UTType(id), ut.conforms(to: .image) else { continue }
-                    guard let data = item.data(forType: t) else { continue }
+                    guard let data = item.data(forType: t) ?? pb.data(forType: t) else { continue }
                     if let img = NSImage(data: data) {
                         onPasteImage?(img)
                         return
                     }
                 }
+            }
+        }
+
+        // Last resort: scan pasteboard-level types for any image-conforming UTI.
+        for t in pb.types ?? [] {
+            let id = t.rawValue
+            guard let ut = UTType(id), ut.conforms(to: .image) else { continue }
+            guard let data = pb.data(forType: t) else { continue }
+            if let img = NSImage(data: data) {
+                onPasteImage?(img)
+                return
             }
         }
         super.paste(sender)
