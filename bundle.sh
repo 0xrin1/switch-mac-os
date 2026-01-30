@@ -76,4 +76,7 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "Built ${BUNDLE_DIR}"
+# Symlink to Applications for Spotlight
+ln -sfh "${REPO_ROOT}/${BUNDLE_DIR}" "/Applications/${APP_NAME}.app"
+
+echo "Built ${BUNDLE_DIR} (symlinked to /Applications)"
