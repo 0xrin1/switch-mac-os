@@ -1259,7 +1259,10 @@ private struct MarkdownMessage: View {
 
     private func makeInlineCodeSpan(_ s: String) -> AttributedString {
         // Match the same "pill" styling used by `styleInlineCode`.
-        var out = AttributedString(s)
+        // AttributedString background has no padding; use a thin space to create
+        // minimal horizontal breathing room without the "wide" look of a full space.
+        let pad = "\u{200A}" // hair space
+        var out = AttributedString(pad + s + pad)
         out.backgroundColor = Color.accentColor.opacity(0.22)
         out.foregroundColor = Color.white
         out.font = .system(size: 12.75, weight: .medium, design: .monospaced)
@@ -1421,12 +1424,12 @@ private struct MarkdownMessage: View {
         }
         // Apply styling to code ranges.
         // NOTE: AttributedString's background has no padding or rounded corners.
-        // To create readable "pills", we wrap the span with spaces and apply the
-        // background to the padded content.
+        // To create readable "pills", we wrap the span with a thin padding and apply
+        // the background to the padded content.
         for range in codeRanges.reversed() {
             let inner = AttributedString(result[range])
-            // Keep padding minimal (selection-friendly) while still visually distinct.
-            var styled = inner
+            let pad = AttributedString("\u{200A}") // hair space
+            var styled = pad + inner + pad
             styled.backgroundColor = Color.accentColor.opacity(0.22)
             styled.foregroundColor = Color.white
             styled.font = .system(size: 12.75, weight: .medium, design: .monospaced)
