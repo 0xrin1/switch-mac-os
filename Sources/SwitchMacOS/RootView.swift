@@ -1235,12 +1235,15 @@ private struct MarkdownMessage: View {
         var combined = Text("")
         for i in paragraphs.indices {
             let para = paragraphs[i]
-            if containsMarkdownSyntax(para) {
-                // For lines within a paragraph, convert \n to hard breaks.
+            if containsMarkdownSyntax(para) && !containsBlockMarkdownSyntax(para) {
+                // Inline markdown only. For lines within a paragraph, convert \n to hard breaks.
+                // (SwiftUI's markdown rendering tends to collapse single \n into spaces.)
                 let hardBreaks = para.replacingOccurrences(of: "\n", with: "  \n")
                 let attr = styleInlineCode((try? AttributedString(markdown: hardBreaks)) ?? AttributedString(para))
                 combined = combined + Text(attr)
             } else {
+                // Preserve literal layout (lists/quotes/headings/newlines) instead of letting the
+                // markdown pipeline collapse block separators.
                 combined = combined + Text(verbatim: para)
             }
             if i != paragraphs.indices.last {
@@ -1248,6 +1251,32 @@ private struct MarkdownMessage: View {
             }
         }
         return combined
+    }
+
+    private func containsBlockMarkdownSyntax(_ s: String) -> Bool {
+        let lines = s.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        for rawLine in lines {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") { return true }
+            if line.hasPrefix(">") { return true }
+            if line.hasPrefix("#") { return true }
+
+            // Ordered list: "1. ..."
+            var idx = line.startIndex
+            while idx < line.endIndex, line[idx].isNumber {
+                idx = line.index(after: idx)
+            }
+            if idx != line.startIndex, idx < line.endIndex {
+                if line[idx] == "." {
+                    let afterDot = line.index(after: idx)
+                    if afterDot < line.endIndex, line[afterDot] == " " {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
     }
 
     private func codeBlockText(_ s: String) -> Text {
