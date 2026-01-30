@@ -1279,19 +1279,20 @@ private struct MarkdownMessage: View {
         // - `inline code`
         // - **bold** / __bold__
         // This avoids SwiftUI's markdown block rendering which can collapse newlines.
+        let input = formatListMarkers(s)
         var out = AttributedString("")
-        var idx = s.startIndex
+        var idx = input.startIndex
 
         func appendLiteral(_ start: String.Index, _ end: String.Index) {
             if end > start {
-                out += AttributedString(String(s[start..<end]))
+                out += AttributedString(String(input[start..<end]))
             }
         }
 
-        while idx < s.endIndex {
-            let nextBacktick = s[idx...].firstIndex(of: "`")
-            let nextBoldA = s[idx...].range(of: "**")?.lowerBound
-            let nextBoldB = s[idx...].range(of: "__")?.lowerBound
+        while idx < input.endIndex {
+            let nextBacktick = input[idx...].firstIndex(of: "`")
+            let nextBoldA = input[idx...].range(of: "**")?.lowerBound
+            let nextBoldB = input[idx...].range(of: "__")?.lowerBound
 
             // Pick earliest delimiter.
             var next = nextBacktick
@@ -1310,39 +1311,56 @@ private struct MarkdownMessage: View {
             }
 
             guard let open = next else {
-                appendLiteral(idx, s.endIndex)
+                appendLiteral(idx, input.endIndex)
                 break
             }
 
             appendLiteral(idx, open)
 
             if kind == "code" {
-                let afterOpen = s.index(after: open)
-                guard let close = s[afterOpen...].firstIndex(of: "`") else {
+                let afterOpen = input.index(after: open)
+                guard let close = input[afterOpen...].firstIndex(of: "`") else {
                     out += AttributedString("`")
                     idx = afterOpen
                     continue
                 }
-                let code = String(s[afterOpen..<close])
+                let code = String(input[afterOpen..<close])
                 out += makeInlineCodeSpan(code)
-                idx = s.index(after: close)
+                idx = input.index(after: close)
                 continue
             }
 
             let delim = (kind == "bold__") ? "__" : "**"
-            let afterDelim = s.index(open, offsetBy: 2)
-            guard let closeRange = s[afterDelim...].range(of: delim) else {
+            let afterDelim = input.index(open, offsetBy: 2)
+            guard let closeRange = input[afterDelim...].range(of: delim) else {
                 out += AttributedString(delim)
                 idx = afterDelim
                 continue
             }
 
-            let inner = String(s[afterDelim..<closeRange.lowerBound])
+            let inner = String(input[afterDelim..<closeRange.lowerBound])
             out += makeBoldSpan(inner)
             idx = closeRange.upperBound
         }
 
         return out
+    }
+
+    private func formatListMarkers(_ s: String) -> String {
+        // Convert common unordered list markers to a bullet glyph while keeping
+        // the rest of the text verbatim.
+        let lines = s.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let bullet = "\u{2022}"
+        let out = lines.map { raw -> String in
+            let leading = raw.prefix { $0 == " " || $0 == "\t" }
+            let rest = raw.dropFirst(leading.count)
+            if rest.hasPrefix("- ") || rest.hasPrefix("* ") || rest.hasPrefix("+ ") {
+                let after = rest.dropFirst(2)
+                return String(leading) + bullet + " " + after
+            }
+            return raw
+        }
+        return out.joined(separator: "\n")
     }
 
     private func containsBlockMarkdownSyntax(_ s: String) -> Bool {
