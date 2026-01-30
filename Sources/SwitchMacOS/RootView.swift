@@ -1269,8 +1269,9 @@ private struct MarkdownMessage: View {
 
     private func makeBoldSpan(_ s: String) -> AttributedString {
         var out = AttributedString(s)
-        // Keep weight consistent with the surrounding message font.
-        out.font = .system(size: 13.5, weight: .semibold, design: .rounded)
+        // Make emphasis visually unambiguous.
+        out.font = .system(size: 13.5, weight: .bold, design: .rounded)
+        out.inlinePresentationIntent = .stronglyEmphasized
         return out
     }
 
