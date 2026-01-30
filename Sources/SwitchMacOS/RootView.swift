@@ -1244,13 +1244,58 @@ private struct MarkdownMessage: View {
             } else {
                 // Preserve literal layout (lists/quotes/headings/newlines) instead of letting the
                 // markdown pipeline collapse block separators.
-                combined = combined + Text(verbatim: para)
+                if para.contains("`") {
+                    combined = combined + Text(styleBacktickedCode(para))
+                } else {
+                    combined = combined + Text(verbatim: para)
+                }
             }
             if i != paragraphs.indices.last {
                 combined = combined + Text("\n\n")
             }
         }
         return combined
+    }
+
+    private func makeInlineCodeSpan(_ s: String) -> AttributedString {
+        // Match the same "pill" styling used by `styleInlineCode`.
+        var padded = AttributedString(" ") + AttributedString(s) + AttributedString(" ")
+        padded.backgroundColor = Color.accentColor.opacity(0.22)
+        padded.foregroundColor = Color.white
+        padded.font = .system(size: 12.75, weight: .medium, design: .monospaced)
+        padded.kern = 0
+        return padded
+    }
+
+    private func styleBacktickedCode(_ s: String) -> AttributedString {
+        // Apply inline-code styling for backtick-delimited spans, while keeping the
+        // rest of the text verbatim so newlines/bullets remain intact.
+        var out = AttributedString("")
+        var idx = s.startIndex
+
+        while let open = s[idx...].firstIndex(of: "`") {
+            if open > idx {
+                out += AttributedString(String(s[idx..<open]))
+            }
+
+            let afterOpen = s.index(after: open)
+            guard let close = s[afterOpen...].firstIndex(of: "`") else {
+                // Unmatched backtick; treat literally.
+                out += AttributedString("`")
+                idx = afterOpen
+                continue
+            }
+
+            let code = String(s[afterOpen..<close])
+            out += makeInlineCodeSpan(code)
+            idx = s.index(after: close)
+        }
+
+        if idx < s.endIndex {
+            out += AttributedString(String(s[idx...]))
+        }
+
+        return out
     }
 
     private func containsBlockMarkdownSyntax(_ s: String) -> Bool {
