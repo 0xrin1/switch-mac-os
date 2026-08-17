@@ -14,6 +14,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/tigase/Martin.git", branch: "master"),
         .package(url: "https://github.com/tigase/MartinOMEMO.git", branch: "master"),
+        .package(url: "https://github.com/raspu/Highlightr.git", from: "2.3.0"),
     ],
     targets: [
         .target(
@@ -27,6 +28,7 @@ let package = Package(
             name: "SwitchMacOS",
             dependencies: [
                 "SwitchCore",
+                .product(name: "Highlightr", package: "Highlightr"),
             ]
         ),
     ]

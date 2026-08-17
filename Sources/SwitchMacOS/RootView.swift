@@ -2932,6 +2932,12 @@ private struct MarkdownMessage: View, Equatable {
     // into SwiftUI (NSTextTable is not representable in Text).
     let xhtmlBody: String?
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.content == rhs.content && lhs.xhtmlBody == rhs.xhtmlBody
+    }
+
     /// Above this size the markdown pipeline (per-line AttributedString
     /// concatenation + one giant SwiftUI Text) blocks the main thread for
     /// seconds, so huge messages (pasted logs, dumps) fall back to plain text.
@@ -2956,8 +2962,8 @@ private struct MarkdownMessage: View, Equatable {
             switch block.kind {
             case .markdown(let s):
                 combined = combined + markdownText(s)
-            case .code(let s):
-                combined = combined + codeBlockText(s)
+            case .code(let s, let language):
+                combined = combined + codeBlockText(s, language: language)
             case .table(let headers, let rows):
                 combined = combined + tableText(headers: headers, rows: rows)
             }
@@ -3197,7 +3203,13 @@ private struct MarkdownMessage: View, Equatable {
         return false
     }
 
-    private func codeBlockText(_ s: String) -> Text {
+    private func codeBlockText(_ s: String, language: String?) -> Text {
+        // Language-tagged fences get real syntax highlighting (highlight.js
+        // via Highlightr); untagged/unknown blocks keep the uniform style.
+        if let language,
+           let highlighted = CodeHighlighter.highlighted(s, language: language, colorScheme: colorScheme) {
+            return Text(highlightedBlock(highlighted))
+        }
         // Use an attributed-string fallback for code blocks so selection can span across
         // the whole message. We can't get proper padding/rounded corners like a SwiftUI
         // container, so we fake padding by adding spaces on each line.
@@ -3215,6 +3227,38 @@ private struct MarkdownMessage: View, Equatable {
             }
         }
         return Text(out)
+    }
+
+    /// Apply the same look as the uniform code blocks (monospaced font, subtle
+    /// background, two-space fake padding) to a highlighted attributed string.
+    private func highlightedBlock(_ highlighted: AttributedString) -> AttributedString {
+        let mono = Font.system(size: 12.5, weight: .regular, design: .monospaced)
+        let bg = Color.black.opacity(0.06)
+
+        func padded(_ text: AttributedString) -> AttributedString {
+            var row = AttributedString("  ")
+            row.font = mono
+            row.backgroundColor = bg
+            var content = text
+            content.font = mono
+            content.backgroundColor = bg
+            row += content
+            var trail = AttributedString("  ")
+            trail.font = mono
+            trail.backgroundColor = bg
+            row += trail
+            return row
+        }
+
+        let lines = CodeHighlighter.splitLines(highlighted)
+        var out = AttributedString("")
+        for (i, line) in lines.enumerated() {
+            if i > 0 {
+                out += AttributedString("\n")
+            }
+            out += padded(line)
+        }
+        return out
     }
 
     private func styleInlineCode(_ input: AttributedString) -> AttributedString {
@@ -3284,7 +3328,7 @@ private struct MarkdownMessage: View, Equatable {
     private struct MarkdownBlock {
         enum Kind {
             case markdown(String)
-            case code(String)
+            case code(String, language: String?)
             case table(headers: [String], rows: [[String]])
         }
         let kind: Kind
@@ -3316,6 +3360,13 @@ private struct MarkdownMessage: View, Equatable {
                 // Fences may be indented (e.g. code blocks inside list items);
                 // strip the fence's indent from the block so it renders flush.
                 let fenceIndent = line.prefix(while: { $0 == " " || $0 == "\t" })
+                // Capture the fence's info string (e.g. "bash" in ```bash) so
+                // tagged blocks can be syntax highlighted.
+                let info = line
+                    .dropFirst(fenceIndent.count + 3)
+                    .drop(while: { $0 == "`" })
+                    .trimmingCharacters(in: .whitespaces)
+                let language = info.split(separator: " ").first.map { String($0) }
                 flushMarkdown()
                 var codeLines: [String] = []
                 i += 1
@@ -3330,7 +3381,7 @@ private struct MarkdownMessage: View, Equatable {
                 if i < lines.count {
                     i += 1 // closing fence
                 }
-                blocks.append(MarkdownBlock(kind: .code(codeLines.joined(separator: "\n"))))
+                blocks.append(MarkdownBlock(kind: .code(codeLines.joined(separator: "\n"), language: language)))
                 continue
             }
 
