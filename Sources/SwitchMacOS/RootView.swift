@@ -1354,6 +1354,7 @@ private struct ChatPane: View {
         let onForward: (ChatMessage, String) -> Void
 
         @Environment(\.colorScheme) private var colorScheme
+        @State private var isToolResultExpanded = false
 
         // Skip body re-evaluation unless displayed data changed; the closures
         // route to stable bindings and xmpp is a long-lived reference, so
@@ -1544,11 +1545,32 @@ private struct ChatPane: View {
 
         @ViewBuilder
         private var toolMessageContent: some View {
-            if let attributed = toolCallContent() {
-                styledToolText(Text(attributed))
-            } else {
-                styledToolText(Text(msg.body).foregroundStyle(.primary.opacity(0.9)))
+            let fullText = msg.meta?.toolResultFullText
+            let displayedBody = isToolResultExpanded ? (fullText ?? msg.body) : msg.body
+
+            VStack(alignment: .leading, spacing: 4) {
+                if let attributed = toolCallContent(displayedBody) {
+                    styledToolText(Text(attributed))
+                } else {
+                    styledToolText(Text(displayedBody).foregroundStyle(.primary.opacity(0.9)))
+                }
+
+                if fullText != nil {
+                    Button {
+                        isToolResultExpanded.toggle()
+                    } label: {
+                        Label(
+                            isToolResultExpanded ? "Collapse output" : "Show full output",
+                            systemImage: isToolResultExpanded ? "chevron.up" : "chevron.down"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 8)
+                }
             }
+            .frame(maxWidth: 520, alignment: .leading)
         }
 
         /// Shared look for tool-call result boxes (monospaced, subtle
@@ -1576,8 +1598,7 @@ private struct ChatPane: View {
         /// the agent ran. Tool results carry arbitrary program output (not
         /// bash), so they render plain. Returns nil to fall back to the plain
         /// rendering.
-        private func toolCallContent() -> AttributedString? {
-            let body = msg.body
+        private func toolCallContent(_ body: String) -> AttributedString? {
 
             // "!command" handler: "$ <command>\n<output>" (always bash).
             if body.hasPrefix("$ ") {
@@ -1586,12 +1607,19 @@ private struct ChatPane: View {
                 return bakeToolFont(r)
             }
 
+            // Runner tool result: "… [tool-result:<name> <output>]". Keep the
+            // structural text dimmed, accent the tool name, and highlight bash
+            // output using the same language path as bash calls.
+            if let toolName = toolNameFromBody(body, marker: "[tool-result:") {
+                return bakeToolFont(runnerToolResultContent(body, toolName: toolName))
+            }
+
             // Runner tool-call: "… [tool:<name> <label>]". Handle ALL tools — the
             // tool name (read/edit/bash/…) is rendered in accent so the transcript
             // is scannable, and the label is rendered per-tool (bash = syntax
             // highlight, others = readable). The name is parsed from the body
             // itself: meta.tool can be "?" when the runner omits the tool id.
-            guard let toolName = toolNameFromBody(body) else {
+            guard let toolName = toolNameFromBody(body, marker: "[tool:") else {
                 return nil
             }
             let r = runnerToolCallContent(body, toolName: toolName)
@@ -1609,9 +1637,9 @@ private struct ChatPane: View {
             return r
         }
 
-        /// Extract the tool name from a "[tool:<name> …]" prefix in the body.
-        private func toolNameFromBody(_ body: String) -> String? {
-            guard let range = body.range(of: "[tool:") else { return nil }
+        /// Extract the tool name following a tool-call or tool-result marker.
+        private func toolNameFromBody(_ body: String, marker: String) -> String? {
+            guard let range = body.range(of: marker) else { return nil }
             let after = body[range.upperBound...]
             var name = ""
             for ch in after {
@@ -1663,6 +1691,37 @@ private struct ChatPane: View {
                 result += out
             }
 
+            return result
+        }
+
+        /// Runner tool result. The final closing bracket is intentional: output
+        /// can itself contain brackets (for example episode names like `[1x01]`).
+        private func runnerToolResultContent(_ body: String, toolName: String) -> AttributedString? {
+            let marker = "[tool-result:"
+            guard let markerRange = body.range(of: marker),
+                  let closing = body.lastIndex(of: "]"),
+                  closing >= markerRange.upperBound else {
+                return nil
+            }
+
+            let afterMarker = body[markerRange.upperBound...]
+            guard afterMarker.hasPrefix(toolName) else { return nil }
+            let afterName = afterMarker.index(afterMarker.startIndex, offsetBy: toolName.count)
+
+            var result = AttributedString()
+            result += Self.dimmed(String(body[..<markerRange.lowerBound]))
+            result += Self.dimmed(marker)
+            result += Self.accented(toolName)
+
+            var payload = String(body[afterName..<closing])
+            if payload.hasPrefix(" ") {
+                result += Self.dimmed(" ")
+                payload.removeFirst()
+            }
+            if !payload.isEmpty {
+                result += mainContent(payload, toolName: toolName)
+            }
+            result += Self.dimmed(String(body[closing...]))
             return result
         }
 

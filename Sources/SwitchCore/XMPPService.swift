@@ -109,6 +109,14 @@ public func buildSwitchMetaElement(type: String, tool: String? = nil, attrs: [St
     return meta
 }
 
+private struct ToolResultPayload: Decodable {
+    let fullText: String
+
+    enum CodingKeys: String, CodingKey {
+        case fullText = "full_text"
+    }
+}
+
 /// Parse Switch message metadata from an XMPP message element
 public func parseMessageMeta(from element: Element) -> MessageMeta? {
     // Look for direct child:
@@ -163,6 +171,11 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
         attachments = SwitchAttachmentCodec.decodeAttachments(from: payloadJson)
     }
 
+    var toolResultFullText: String? = nil
+    if metaType == .toolResult, let payloadJson {
+        toolResultFullText = decodeJSON(ToolResultPayload.self, from: payloadJson)?.fullText
+    }
+
     if metaType == .question, question == nil {
         logger.notice("Question meta present but payload decode failed")
         logger.notice("meta.name=\(metaElement.name, privacy: .public) meta.xmlns=\(metaElement.xmlns ?? "nil", privacy: .public)")
@@ -197,7 +210,15 @@ public func parseMessageMeta(from element: Element) -> MessageMeta? {
         )
     }
 
-    return MessageMeta(type: metaType, tool: tool, runStats: runStats, requestId: requestId, question: question, attachments: attachments)
+    return MessageMeta(
+        type: metaType,
+        tool: tool,
+        runStats: runStats,
+        requestId: requestId,
+        question: question,
+        attachments: attachments,
+        toolResultFullText: toolResultFullText
+    )
 }
 
 public func parseXHTMLBody(from element: Element) -> String? {

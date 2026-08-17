@@ -19,6 +19,7 @@ public struct MessageMeta: Hashable, Sendable {
     public let requestId: String?
     public let question: SwitchQuestionEnvelopeV1?
     public let attachments: [SwitchAttachment]?
+    public let toolResultFullText: String?
 
     public init(
         type: MetaType,
@@ -26,7 +27,8 @@ public struct MessageMeta: Hashable, Sendable {
         runStats: RunStats? = nil,
         requestId: String? = nil,
         question: SwitchQuestionEnvelopeV1? = nil,
-        attachments: [SwitchAttachment]? = nil
+        attachments: [SwitchAttachment]? = nil,
+        toolResultFullText: String? = nil
     ) {
         self.type = type
         self.tool = tool
@@ -34,6 +36,7 @@ public struct MessageMeta: Hashable, Sendable {
         self.requestId = requestId
         self.question = question
         self.attachments = attachments
+        self.toolResultFullText = toolResultFullText
     }
 
     public var isToolRelated: Bool {
