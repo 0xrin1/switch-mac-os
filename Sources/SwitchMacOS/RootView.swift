@@ -1569,14 +1569,29 @@ private struct ChatPane: View {
                 .frame(maxWidth: 520, alignment: .leading)
         }
 
-        /// Bash tool messages arrive as "$ <command>\n<output>". Highlight the
-        /// command as bash so it's easy to follow what the agent ran; the
-        /// output stays plain monospace. Returns nil for anything that isn't a
-        /// parseable bash tool body (falls back to the plain rendering).
+        /// Bash tool messages. Two formats exist:
+        ///   • "!command" handler: "$ <command>\n<output>"
+        ///   • runner tool-call:   "… [tool:bash <command>( | <desc>)]"
+        /// In both we highlight the command as bash so it's easy to follow what
+        /// the agent ran. Tool results carry arbitrary program output (not
+        /// bash), so they render plain. Returns nil to fall back to the plain
+        /// rendering.
         private func bashToolContent() -> AttributedString? {
-            guard msg.meta?.tool == "bash", msg.body.hasPrefix("$ ") else { return nil }
+            guard let tool = msg.meta?.tool, tool.lowercased() == "bash" else { return nil }
+            let body = msg.body
 
-            var lines = msg.body.components(separatedBy: "\n")
+            if body.hasPrefix("$ ") {
+                return shellCommandContent(body)
+            }
+            if msg.meta?.type == .tool {
+                return runnerToolCallContent(body, toolName: tool)
+            }
+            return nil
+        }
+
+        /// "$ <command>\n<output>" (the "!command" handler).
+        private func shellCommandContent(_ body: String) -> AttributedString? {
+            var lines = body.components(separatedBy: "\n")
             guard !lines.isEmpty else { return nil }
             let command = lines.removeFirst().dropFirst(2)   // strip the "$ " prompt
             let output = lines.joined(separator: "\n")
@@ -1601,6 +1616,57 @@ private struct ChatPane: View {
                 var out = AttributedString("\n" + output)
                 out.foregroundColor = .primary.opacity(0.9)
                 result += out
+            }
+
+            return result
+        }
+
+        /// Runner tool-call: "… [tool:<bash|Bash> <command>( | <desc>)]", optionally
+        /// followed by " input: <full command>". Highlights the command; the
+        /// surrounding header/brackets stay dimmed.
+        private func runnerToolCallContent(_ body: String, toolName: String) -> AttributedString? {
+            // Preferred: full command after " input: " (tool-input logging mode).
+            if let inputRange = body.range(of: " input: ") {
+                let before = String(body[body.startIndex..<inputRange.upperBound])
+                let command = String(body[inputRange.upperBound...])
+                return buildToolCallAttributed(before: before, command: command, tail: "")
+            }
+
+            // Fallback: command is the header title "[tool:<name> <command>]".
+            let marker = "[tool:\(toolName) "
+            guard let markerRange = body.range(of: marker) else { return nil }
+            let rest = String(body[markerRange.upperBound...])
+            guard let closing = rest.lastIndex(of: "]") else { return nil }
+            let inner = String(rest[rest.startIndex..<closing])
+            let command = inner.components(separatedBy: " | ").first ?? inner
+            let before = String(body[body.startIndex..<markerRange.upperBound])
+            let tail = String(rest.dropFirst(command.count))
+            return buildToolCallAttributed(before: before, command: command, tail: tail)
+        }
+
+        /// Dimmed context + highlighted bash command + dimmed tail.
+        private func buildToolCallAttributed(before: String, command: String, tail: String) -> AttributedString? {
+            let cmd = command.trimmingCharacters(in: .whitespaces)
+            guard !cmd.isEmpty else { return nil }
+
+            var result = AttributedString()
+
+            var header = AttributedString(before)
+            header.foregroundColor = .secondary
+            result += header
+
+            if let highlighted = CodeHighlighter.highlighted(cmd, language: "bash", colorScheme: colorScheme) {
+                result += highlighted
+            } else {
+                var c = AttributedString(cmd)
+                c.foregroundColor = .primary.opacity(0.9)
+                result += c
+            }
+
+            if !tail.isEmpty {
+                var t = AttributedString(tail)
+                t.foregroundColor = .secondary
+                result += t
             }
 
             return result
