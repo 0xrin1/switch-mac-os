@@ -8,7 +8,17 @@ import Highlightr
 enum CodeHighlighter {
     /// highlight.js runs in a single JS context and every caller is on the
     /// main thread, so one shared instance is safe.
-    static let shared: Highlightr? = Highlightr()
+    static let shared: Highlightr? = { () -> Highlightr? in
+        let hl = Highlightr()
+        if let hl {
+            let themes = hl.availableThemes()
+            NSLog("[CodeHighlighter] INIT OK — availableThemes count: %d, has dracula: %d, has pojoaque: %d",
+                  themes.count, themes.contains("dracula"), themes.contains("pojoaque"))
+        } else {
+            NSLog("[CodeHighlighter] INIT FAILED — Highlightr() returned nil")
+        }
+        return hl
+    }()
 
     /// `setTheme` re-reads and re-parses the theme CSS on every call; the
     /// theme only changes when the system appearance flips, so remember the
@@ -63,16 +73,33 @@ enum CodeHighlighter {
         guard let hl = shared,
               setThemeIfNeeded(themeName, on: hl),
               let ns = hl.highlight(code, as: jsLanguage) else {
+            NSLog("[CodeHighlighter] highlighted FAILED — shared=%d, lang=%@, theme=%@",
+                  shared != nil ? 1 : 0, jsLanguage ?? "auto", themeName)
             return nil
         }
-
         let result = toSwiftUI(ns)
-        return result.characters.isEmpty ? nil : result
+        if result.characters.isEmpty {
+            NSLog("[CodeHighlighter] highlighted returned EMPTY for lang=%@", jsLanguage ?? "auto")
+            return nil
+        }
+        // Log color diversity for diagnostics
+        var colors = Set<String>()
+        for run in result.runs {
+            if let fg = run.foregroundColor?.description {
+                colors.insert(fg)
+            }
+        }
+        NSLog("[CodeHighlighter] highlighted OK — lang=%@, nsLen=%d, distinctColors=%d, first100=%@",
+              jsLanguage ?? "auto", ns.length, colors.count,
+              String(code.prefix(80).replacingOccurrences(of: "\n", with: "\\n")))
+        return result
     }
 
     private static func setThemeIfNeeded(_ name: String, on hl: Highlightr) -> Bool {
         guard appliedTheme != name else { return true }
-        guard hl.setTheme(to: name) else { return false }
+        let ok = hl.setTheme(to: name)
+        NSLog("[CodeHighlighter] setTheme(%@) → %@", name, ok ? "OK" : "FAILED")
+        guard ok else { return false }
         appliedTheme = name
         return true
     }
