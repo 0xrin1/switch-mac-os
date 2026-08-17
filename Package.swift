@@ -24,6 +24,13 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "TreeSitterPythonFix",
+            dependencies: [],
+            path: "Sources/TreeSitterPythonFix",
+            publicHeadersPath: "include",
+            cSettings: [.headerSearchPath("include")]
+        ),
+        .target(
             name: "SwitchCore",
             dependencies: [
                 .product(name: "Martin", package: "Martin"),
@@ -38,6 +45,7 @@ let package = Package(
                 // Tree-sitter
                 .product(name: "SwiftTreeSitter", package: "swift-tree-sitter"),
                 .product(name: "TreeSitterPython", package: "tree-sitter-python"),
+                "TreeSitterPythonFix",
                 .product(name: "TreeSitterCSharp", package: "tree-sitter-c-sharp"),
                 .product(name: "TreeSitterBash", package: "tree-sitter-bash"),
                 .product(name: "TreeSitterJSON", package: "tree-sitter-json"),
