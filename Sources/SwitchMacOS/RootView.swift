@@ -1577,25 +1577,39 @@ private struct ChatPane: View {
         /// bash), so they render plain. Returns nil to fall back to the plain
         /// rendering.
         private func bashToolContent() -> AttributedString? {
-            guard let tool = msg.meta?.tool, tool.lowercased() == "bash" else {
-                CodeHighlighter.toolDiagOnce("bashTool SKIP guard: meta.tool=\(String(describing: msg.meta?.tool)) type=\(String(describing: msg.meta?.type))")
-                return nil
-            }
             let body = msg.body
 
-            let result: AttributedString?
+            // "!command" handler: "$ <command>\n<output>" (always bash).
             if body.hasPrefix("$ ") {
-                result = shellCommandContent(body)
-            } else if msg.meta?.type == .tool {
-                result = runnerToolCallContent(body, toolName: tool)
-            } else {
-                result = nil
+                let r = shellCommandContent(body)
+                CodeHighlighter.toolDiagOnce("bashTool $-prefix -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
+                return r
             }
 
-            CodeHighlighter.toolDiagOnce(
-                "bashTool meta.tool=\(tool) type=\(String(describing: msg.meta?.type)) body40=\(body.prefix(40)) -> \(result == nil ? "nil" : "ok(chars \(result!.characters.count) coloredRuns \(coloredRunCount(result!)))")"
-            )
-            return result
+            // Runner tool-call: "… [tool:<name> …]". Detect <name> from the body
+            // itself — meta.tool can be "?" when the runner omits the tool id, so
+            // the body prefix is the reliable signal.
+            guard let toolName = toolNameFromBody(body), toolName.lowercased() == "bash" else {
+                return nil
+            }
+            let r = runnerToolCallContent(body, toolName: toolName)
+            CodeHighlighter.toolDiagOnce("bashTool body toolName=\(toolName) body40=\(body.prefix(40)) -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
+            return r
+        }
+
+        /// Extract the tool name from a "[tool:<name> …]" prefix in the body.
+        private func toolNameFromBody(_ body: String) -> String? {
+            guard let range = body.range(of: "[tool:") else { return nil }
+            let after = body[range.upperBound...]
+            var name = ""
+            for ch in after {
+                if ch.isLetter || ch.isNumber || ch == "_" {
+                    name.append(ch)
+                } else {
+                    break
+                }
+            }
+            return name.isEmpty ? nil : name
         }
 
         /// Count runs carrying an explicit foreground color (diagnostic signal:
