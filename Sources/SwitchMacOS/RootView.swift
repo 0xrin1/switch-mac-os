@@ -1583,7 +1583,7 @@ private struct ChatPane: View {
             if body.hasPrefix("$ ") {
                 let r = shellCommandContent(body)
                 CodeHighlighter.toolDiagOnce("toolCall $-prefix -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
-                return r
+                return bakeToolFont(r)
             }
 
             // Runner tool-call: "… [tool:<name> <label>]". Handle ALL tools — the
@@ -1596,6 +1596,16 @@ private struct ChatPane: View {
             }
             let r = runnerToolCallContent(body, toolName: toolName)
             CodeHighlighter.toolDiagOnce("toolCall body toolName=\(toolName) body40=\(body.prefix(40)) -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
+            return bakeToolFont(r)
+        }
+
+        /// Bake the monospaced font into the tool-call attributed string. The
+        /// working code-block path does the same (highlightedBlock sets .font on
+        /// every run). A .font() view modifier alone appears to suppress per-run
+        /// foreground colors, so set the font as an attribute on the whole string.
+        private func bakeToolFont(_ s: AttributedString?) -> AttributedString? {
+            guard var r = s else { return nil }
+            r.font = Font.system(size: 12, weight: .regular, design: .monospaced)
             return r
         }
 
