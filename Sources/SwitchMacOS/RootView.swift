@@ -1353,6 +1353,8 @@ private struct ChatPane: View {
         let onReply: (ChatMessage) -> Void
         let onForward: (ChatMessage, String) -> Void
 
+        @Environment(\.colorScheme) private var colorScheme
+
         // Skip body re-evaluation unless displayed data changed; the closures
         // route to stable bindings and xmpp is a long-lived reference, so
         // neither participates in display equality.
@@ -1540,10 +1542,20 @@ private struct ChatPane: View {
             !msg.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
 
+        @ViewBuilder
         private var toolMessageContent: some View {
-            Text(msg.body)
+            if let attributed = bashToolContent() {
+                styledToolText(Text(attributed))
+            } else {
+                styledToolText(Text(msg.body).foregroundStyle(.primary.opacity(0.9)))
+            }
+        }
+
+        /// Shared look for tool-call result boxes (monospaced, subtle
+        /// background, rounded border).
+        private func styledToolText<Content: View>(_ content: Content) -> some View {
+            content
                 .font(.system(size: 12, weight: .regular, design: .monospaced))
-                .foregroundStyle(.primary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1555,6 +1567,43 @@ private struct ChatPane: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .frame(maxWidth: 520, alignment: .leading)
+        }
+
+        /// Bash tool messages arrive as "$ <command>\n<output>". Highlight the
+        /// command as bash so it's easy to follow what the agent ran; the
+        /// output stays plain monospace. Returns nil for anything that isn't a
+        /// parseable bash tool body (falls back to the plain rendering).
+        private func bashToolContent() -> AttributedString? {
+            guard msg.meta?.tool == "bash", msg.body.hasPrefix("$ ") else { return nil }
+
+            var lines = msg.body.components(separatedBy: "\n")
+            guard !lines.isEmpty else { return nil }
+            let command = lines.removeFirst().dropFirst(2)   // strip the "$ " prompt
+            let output = lines.joined(separator: "\n")
+
+            var result = AttributedString()
+
+            var prompt = AttributedString("$ ")
+            prompt.foregroundColor = .secondary
+            result += prompt
+
+            if let highlighted = CodeHighlighter.highlighted(
+                String(command), language: "bash", colorScheme: colorScheme
+            ) {
+                result += highlighted
+            } else {
+                var cmd = AttributedString(String(command))
+                cmd.foregroundColor = .primary.opacity(0.9)
+                result += cmd
+            }
+
+            if !output.isEmpty {
+                var out = AttributedString("\n" + output)
+                out.foregroundColor = .primary.opacity(0.9)
+                result += out
+            }
+
+            return result
         }
 
         // NSDataDetector/NSRegularExpression are expensive to construct and
