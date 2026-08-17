@@ -32,6 +32,15 @@ mkdir -p "${RESOURCES}"
 # treats the process as a real app for things like notifications.
 cp ".build/debug/${APP_NAME}" "${MACOS}/${APP_NAME}"
 
+# Copy SPM resource bundles (e.g. Highlightr's highlight.min.js + theme CSS)
+# into the app so Bundle.module can find them at runtime. Without this,
+# Highlightr() fails to locate its resources and highlighting silently no-ops.
+for res_bundle in ".build/debug/"*.bundle; do
+  if [ -d "$res_bundle" ]; then
+    cp -R "$res_bundle" "${RESOURCES}/"
+  fi
+done
+
 # If a repo-root .env exists, bundle it for convenient local dev.
 if [ -f "${REPO_ROOT}/.env" ]; then
   cp "${REPO_ROOT}/.env" "${RESOURCES}/.env"

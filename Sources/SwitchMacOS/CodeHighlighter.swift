@@ -44,16 +44,48 @@ enum CodeHighlighter {
 
     static func highlighted(_ code: String, language: String, colorScheme: ColorScheme) -> AttributedString? {
         let themeName = colorScheme == .dark ? "atom-one-dark" : "atom-one-light"
-        guard
-            let hl = shared,
-            let jsLanguage = languageMap[language.lowercased()],
-            setThemeIfNeeded(themeName, on: hl),
-            let ns = hl.highlight(code, as: jsLanguage)
-        else { return nil }
+        guard let hl = shared else {
+            diagOnce("FAIL shared Highlightr is nil — highlight.min.js/theme resources not found at runtime (check the .app bundle contains Highlightr_Highlightr.bundle)")
+            return nil
+        }
+        guard let jsLanguage = languageMap[language.lowercased()] else { return nil }
+        guard setThemeIfNeeded(themeName, on: hl) else {
+            diagOnce("FAIL setTheme(\(themeName)) — theme CSS not found in bundle")
+            return nil
+        }
+        guard let ns = hl.highlight(code, as: jsLanguage) else {
+            diagOnce("FAIL highlight() returned nil for language \(jsLanguage)")
+            return nil
+        }
 
         let result = toSwiftUI(ns)
         guard !result.characters.isEmpty else { return nil }
+        diagOnce("OK highlight language=\(jsLanguage) theme=\(themeName) codeChars=\(code.count)")
         return result
+    }
+
+    // One-shot runtime diagnostics so a silent no-op is diagnosable. Writes to
+    // stderr and ~/Library/Logs/switch-macos-highlight.log.
+    private static var diagState: [String: Bool] = [:]
+    private static func diagOnce(_ message: String) {
+        let key = message.split(separator: " ").prefix(2).joined(separator: " ")
+        guard diagState[key] != true else { return }
+        diagState[key] = true
+        let line = "[CodeHighlighter \(Date())] \(message)\n"
+        let data = line.data(using: .utf8) ?? Data()
+        FileHandle.standardError.write(data)
+        let fm = FileManager.default
+        guard let lib = fm.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
+        let dir = lib.appendingPathComponent("Logs")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("switch-macos-highlight.log")
+        if fm.fileExists(atPath: url.path), let fh = try? FileHandle(forWritingTo: url) {
+            fh.seekToEndOfFile()
+            try? fh.write(contentsOf: data)
+            try? fh.close()
+        } else {
+            try? data.write(to: url)
+        }
     }
 
     private static func setThemeIfNeeded(_ name: String, on hl: Highlightr) -> Bool {
