@@ -1666,47 +1666,66 @@ private struct ChatPane: View {
             return result
         }
 
-        /// Runner tool-call: "… [tool:<name> <label>( | <desc>)]", optionally
-        /// followed by " input: <full command>". Renders the tool name in accent
-        /// (scannable) and the main label: bash → syntax-highlighted command,
-        /// other tools → readable text. Surrounding header/brackets stay dimmed.
+        /// Runner tool message: one or more "[tool:<name> <label> …]" segments
+        /// (a single call, or a summary that joins the last few with spaces),
+        /// optionally followed by " input: <full command>". EVERY segment's tool
+        /// name is rendered in the accent colour (scannable) and its label is
+        /// syntax-highlighted for bash (readable otherwise); brackets,
+        /// separators and leading text stay dimmed. (toolName is a hint from the
+        /// first segment; each segment's own name is parsed and used.)
         private func runnerToolCallContent(_ body: String, toolName: String) -> AttributedString? {
-            let marker = "[tool:\(toolName)"
-            guard let markerRange = body.range(of: marker) else { return nil }
-
-            let prefix = String(body[body.startIndex..<markerRange.lowerBound])
-            let afterName = body[markerRange.upperBound...]
+            // Strip an optional trailing " input: <full>" (bash) so it can be
+            // re-rendered as a highlighted full command.
+            var segmentBody = body
+            var inputFull: String?
+            if let r = body.range(of: " input: ") {
+                let head = String(body[body.startIndex..<r.lowerBound])
+                if head.trimmingCharacters(in: .whitespaces).hasSuffix("]") {
+                    segmentBody = head
+                    inputFull = String(body[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+                }
+            }
 
             var result = AttributedString()
-            result += Self.dimmed(prefix)
-            result += Self.dimmed("[tool:")
-            result += Self.accented(toolName)
+            var remaining = String(segmentBody)
+            while let marker = remaining.range(of: "[tool:") {
+                result += Self.dimmed(String(remaining[remaining.startIndex..<marker.lowerBound]))
+                guard let close = remaining.range(of: "]", range: marker.lowerBound..<remaining.endIndex) else {
+                    result += Self.dimmed(String(remaining[marker.lowerBound...]))
+                    remaining = ""
+                    break
+                }
+                let inner = String(remaining[marker.upperBound..<close.lowerBound]) // "<name> <label>…"
+                let name = upToFirstSpaceOrClose(inner)
+                let label = String(inner[inner.index(inner.startIndex, offsetBy: name.count)...])
+                    .trimmingCharacters(in: .whitespaces)
+                result += Self.dimmed("[tool:")
+                result += Self.accented(name)
+                if !label.isEmpty {
+                    result += Self.dimmed(" ")
+                    result += mainContent(label, toolName: name)
+                }
+                result += Self.dimmed("]")
+                remaining = String(remaining[close.upperBound...])
+            }
+            if !remaining.isEmpty { result += Self.dimmed(remaining) }
 
-            // Case A: full command after " input: " (tool-input logging mode).
-            if let inputRange = afterName.range(of: " input: ") {
-                let bracketPart = String(afterName[afterName.startIndex..<inputRange.lowerBound])
-                let fullCommand = String(afterName[inputRange.upperBound...])
-                result += Self.dimmed(bracketPart)
+            if let full = inputFull, !full.isEmpty {
                 result += Self.dimmed(" input: ")
-                result += mainContent(fullCommand, toolName: toolName)
-                return result
+                result += mainContent(full, toolName: "bash")
             }
-
-            // Case B: the label lives inside the brackets: " <label>( | <desc>)].
-            guard let closing = afterName.lastIndex(of: "]") else { return nil }
-            let inner = String(afterName[afterName.startIndex..<closing])
-            let segments = inner.components(separatedBy: " | ")
-            let label = segments.first?.trimmingCharacters(in: .whitespaces) ?? ""
-            if label.isEmpty {
-                result += Self.dimmed(inner + "]")
-                return result
-            }
-            let tail = segments.dropFirst().map { " | " + $0 }.joined()
-            result += Self.dimmed(" ")
-            result += mainContent(label, toolName: toolName)
-            if !tail.isEmpty { result += Self.dimmed(tail) }
-            result += Self.dimmed("]")
             return result
+        }
+
+        /// The first token (tool name) of a "[tool:…]" inner string — up to the
+        /// first space or "]".
+        private func upToFirstSpaceOrClose(_ s: String) -> String {
+            let sp = s.firstIndex(of: " ")
+            let close = s.firstIndex(of: "]")
+            var end = s.endIndex
+            if let sp = sp { end = sp }
+            if let close = close, close < end { end = close }
+            return String(s[..<end]).trimmingCharacters(in: .whitespaces)
         }
 
         /// The main label of a tool call, colored by tool: bash → syntax
