@@ -1544,7 +1544,7 @@ private struct ChatPane: View {
 
         @ViewBuilder
         private var toolMessageContent: some View {
-            if let attributed = bashToolContent() {
+            if let attributed = toolCallContent() {
                 styledToolText(Text(attributed))
             } else {
                 styledToolText(Text(msg.body).foregroundStyle(.primary.opacity(0.9)))
@@ -1576,24 +1576,26 @@ private struct ChatPane: View {
         /// the agent ran. Tool results carry arbitrary program output (not
         /// bash), so they render plain. Returns nil to fall back to the plain
         /// rendering.
-        private func bashToolContent() -> AttributedString? {
+        private func toolCallContent() -> AttributedString? {
             let body = msg.body
 
             // "!command" handler: "$ <command>\n<output>" (always bash).
             if body.hasPrefix("$ ") {
                 let r = shellCommandContent(body)
-                CodeHighlighter.toolDiagOnce("bashTool $-prefix -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
+                CodeHighlighter.toolDiagOnce("toolCall $-prefix -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
                 return r
             }
 
-            // Runner tool-call: "… [tool:<name> …]". Detect <name> from the body
-            // itself — meta.tool can be "?" when the runner omits the tool id, so
-            // the body prefix is the reliable signal.
-            guard let toolName = toolNameFromBody(body), toolName.lowercased() == "bash" else {
+            // Runner tool-call: "… [tool:<name> <label>]". Handle ALL tools — the
+            // tool name (read/edit/bash/…) is rendered in accent so the transcript
+            // is scannable, and the label is rendered per-tool (bash = syntax
+            // highlight, others = readable). The name is parsed from the body
+            // itself: meta.tool can be "?" when the runner omits the tool id.
+            guard let toolName = toolNameFromBody(body) else {
                 return nil
             }
             let r = runnerToolCallContent(body, toolName: toolName)
-            CodeHighlighter.toolDiagOnce("bashTool body toolName=\(toolName) body40=\(body.prefix(40)) -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
+            CodeHighlighter.toolDiagOnce("toolCall body toolName=\(toolName) body40=\(body.prefix(40)) -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
             return r
         }
 
@@ -1654,55 +1656,71 @@ private struct ChatPane: View {
             return result
         }
 
-        /// Runner tool-call: "… [tool:<bash|Bash> <command>( | <desc>)]", optionally
-        /// followed by " input: <full command>". Highlights the command; the
-        /// surrounding header/brackets stay dimmed.
+        /// Runner tool-call: "… [tool:<name> <label>( | <desc>)]", optionally
+        /// followed by " input: <full command>". Renders the tool name in accent
+        /// (scannable) and the main label: bash → syntax-highlighted command,
+        /// other tools → readable text. Surrounding header/brackets stay dimmed.
         private func runnerToolCallContent(_ body: String, toolName: String) -> AttributedString? {
-            // Preferred: full command after " input: " (tool-input logging mode).
-            if let inputRange = body.range(of: " input: ") {
-                let before = String(body[body.startIndex..<inputRange.upperBound])
-                let command = String(body[inputRange.upperBound...])
-                return buildToolCallAttributed(before: before, command: command, tail: "")
-            }
-
-            // Fallback: command is the header title "[tool:<name> <command>]".
-            let marker = "[tool:\(toolName) "
+            let marker = "[tool:\(toolName)"
             guard let markerRange = body.range(of: marker) else { return nil }
-            let rest = String(body[markerRange.upperBound...])
-            guard let closing = rest.lastIndex(of: "]") else { return nil }
-            let inner = String(rest[rest.startIndex..<closing])
-            let command = inner.components(separatedBy: " | ").first ?? inner
-            let before = String(body[body.startIndex..<markerRange.upperBound])
-            let tail = String(rest.dropFirst(command.count))
-            return buildToolCallAttributed(before: before, command: command, tail: tail)
-        }
 
-        /// Dimmed context + highlighted bash command + dimmed tail.
-        private func buildToolCallAttributed(before: String, command: String, tail: String) -> AttributedString? {
-            let cmd = command.trimmingCharacters(in: .whitespaces)
-            guard !cmd.isEmpty else { return nil }
+            let prefix = String(body[body.startIndex..<markerRange.lowerBound])
+            let afterName = body[markerRange.upperBound...]
 
             var result = AttributedString()
+            result += Self.dimmed(prefix)
+            result += Self.dimmed("[tool:")
+            result += Self.accented(toolName)
 
-            var header = AttributedString(before)
-            header.foregroundColor = .secondary
-            result += header
-
-            if let highlighted = CodeHighlighter.highlighted(cmd, language: "bash", colorScheme: colorScheme) {
-                result += highlighted
-            } else {
-                var c = AttributedString(cmd)
-                c.foregroundColor = .primary.opacity(0.9)
-                result += c
+            // Case A: full command after " input: " (tool-input logging mode).
+            if let inputRange = afterName.range(of: " input: ") {
+                let bracketPart = String(afterName[afterName.startIndex..<inputRange.lowerBound])
+                let fullCommand = String(afterName[inputRange.upperBound...])
+                result += Self.dimmed(bracketPart)
+                result += Self.dimmed(" input: ")
+                result += mainContent(fullCommand, toolName: toolName)
+                return result
             }
 
-            if !tail.isEmpty {
-                var t = AttributedString(tail)
-                t.foregroundColor = .secondary
-                result += t
+            // Case B: the label lives inside the brackets: " <label>( | <desc>)].
+            guard let closing = afterName.lastIndex(of: "]") else { return nil }
+            let inner = String(afterName[afterName.startIndex..<closing])
+            let segments = inner.components(separatedBy: " | ")
+            let label = segments.first?.trimmingCharacters(in: .whitespaces) ?? ""
+            if label.isEmpty {
+                result += Self.dimmed(inner + "]")
+                return result
             }
-
+            let tail = segments.dropFirst().map { " | " + $0 }.joined()
+            result += Self.dimmed(" ")
+            result += mainContent(label, toolName: toolName)
+            if !tail.isEmpty { result += Self.dimmed(tail) }
+            result += Self.dimmed("]")
             return result
+        }
+
+        /// The main label of a tool call, colored by tool: bash → syntax
+        /// highlight, other tools → readable primary text (a path/description).
+        private func mainContent(_ text: String, toolName: String) -> AttributedString {
+            if toolName.lowercased() == "bash",
+               let highlighted = CodeHighlighter.highlighted(text, language: "bash", colorScheme: colorScheme) {
+                return highlighted
+            }
+            var a = AttributedString(text)
+            a.foregroundColor = .primary
+            return a
+        }
+
+        private static func dimmed(_ s: String) -> AttributedString {
+            var a = AttributedString(s)
+            a.foregroundColor = .secondary
+            return a
+        }
+
+        private static func accented(_ s: String) -> AttributedString {
+            var a = AttributedString(s)
+            a.foregroundColor = .accentColor
+            return a
         }
 
         // NSDataDetector/NSRegularExpression are expensive to construct and
