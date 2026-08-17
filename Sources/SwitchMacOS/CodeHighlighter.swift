@@ -1,24 +1,15 @@
 import SwiftUI
 import Highlightr
 
-/// Syntax highlighting for language-tagged code blocks, backed by
-/// highlight.js via Highlightr. Everything here is best-effort: any failure
-/// (unmapped language, missing theme, JS error) falls back to the uniform
-/// code block styling in `MarkdownMessage`.
+/// Syntax highlighting for code blocks. Primary path uses tree-sitter
+/// (real parsing, dracula colors); falls back to highlight.js via Highlightr
+/// for languages without a tree-sitter grammar. All failures fall back to
+/// the uniform code block styling in `MarkdownMessage`.
 enum CodeHighlighter {
     /// highlight.js runs in a single JS context and every caller is on the
-    /// main thread, so one shared instance is safe.
-    static let shared: Highlightr? = { () -> Highlightr? in
-        let hl = Highlightr()
-        if let hl {
-            let themes = hl.availableThemes()
-            NSLog("[CodeHighlighter] INIT OK — availableThemes count: %d, has dracula: %d, has pojoaque: %d",
-                  themes.count, themes.contains("dracula"), themes.contains("pojoaque"))
-        } else {
-            NSLog("[CodeHighlighter] INIT FAILED — Highlightr() returned nil")
-        }
-        return hl
-    }()
+    /// main thread, so one shared instance is safe. Used as fallback for
+    /// languages not covered by tree-sitter.
+    static let shared: Highlightr? = Highlightr()
 
     /// `setTheme` re-reads and re-parses the theme CSS on every call; the
     /// theme only changes when the system appearance flips, so remember the
@@ -90,9 +81,7 @@ enum CodeHighlighter {
 
     private static func setThemeIfNeeded(_ name: String, on hl: Highlightr) -> Bool {
         guard appliedTheme != name else { return true }
-        let ok = hl.setTheme(to: name)
-        NSLog("[CodeHighlighter] setTheme(%@) → %@", name, ok ? "OK" : "FAILED")
-        guard ok else { return false }
+        guard hl.setTheme(to: name) else { return false }
         appliedTheme = name
         return true
     }

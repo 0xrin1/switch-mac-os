@@ -154,9 +154,8 @@ enum TreeSitterHighlighter {
         let textProvider = code.predicateTextProvider
         let resolved = cursor.resolve(with: .init(textProvider: textProvider))
 
-        guard let highlights = try? resolved.highlights(), !highlights.isEmpty else {
-            return nil
-        }
+        let highlights = resolved.highlights()
+        guard !highlights.isEmpty else { return nil }
 
         // Build result: default color for all, then overlay highlights
         var result = AttributedString(code)
