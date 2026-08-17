@@ -67,10 +67,24 @@ enum CodeHighlighter {
     // One-shot runtime diagnostics so a silent no-op is diagnosable. Writes to
     // stderr and ~/Library/Logs/switch-macos-highlight.log.
     private static var diagState: [String: Bool] = [:]
+    private static var toolDiagLogged = false
+
+    /// One-shot diagnostic for the bash tool-call path (separate from the
+    /// highlighter's own once-per-key logging).
+    static func toolDiagOnce(_ message: String) {
+        guard !toolDiagLogged else { return }
+        toolDiagLogged = true
+        logDiag(message)
+    }
+
     private static func diagOnce(_ message: String) {
         let key = message.split(separator: " ").prefix(2).joined(separator: " ")
         guard diagState[key] != true else { return }
         diagState[key] = true
+        logDiag(message)
+    }
+
+    private static func logDiag(_ message: String) {
         let line = "[CodeHighlighter \(Date())] \(message)\n"
         let data = line.data(using: .utf8) ?? Data()
         FileHandle.standardError.write(data)

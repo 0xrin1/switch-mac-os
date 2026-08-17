@@ -1577,16 +1577,35 @@ private struct ChatPane: View {
         /// bash), so they render plain. Returns nil to fall back to the plain
         /// rendering.
         private func bashToolContent() -> AttributedString? {
-            guard let tool = msg.meta?.tool, tool.lowercased() == "bash" else { return nil }
+            guard let tool = msg.meta?.tool, tool.lowercased() == "bash" else {
+                CodeHighlighter.toolDiagOnce("bashTool SKIP guard: meta.tool=\(String(describing: msg.meta?.tool)) type=\(String(describing: msg.meta?.type))")
+                return nil
+            }
             let body = msg.body
 
+            let result: AttributedString?
             if body.hasPrefix("$ ") {
-                return shellCommandContent(body)
+                result = shellCommandContent(body)
+            } else if msg.meta?.type == .tool {
+                result = runnerToolCallContent(body, toolName: tool)
+            } else {
+                result = nil
             }
-            if msg.meta?.type == .tool {
-                return runnerToolCallContent(body, toolName: tool)
+
+            CodeHighlighter.toolDiagOnce(
+                "bashTool meta.tool=\(tool) type=\(String(describing: msg.meta?.type)) body40=\(body.prefix(40)) -> \(result == nil ? "nil" : "ok(chars \(result!.characters.count) coloredRuns \(coloredRunCount(result!)))")"
+            )
+            return result
+        }
+
+        /// Count runs carrying an explicit foreground color (diagnostic signal:
+        /// >0 means the highlighter produced colors; 0 means it fell back to plain).
+        private func coloredRunCount(_ s: AttributedString) -> Int {
+            var n = 0
+            for run in s.runs {
+                if AttributedString(s[run.range]).foregroundColor != nil { n += 1 }
             }
-            return nil
+            return n
         }
 
         /// "$ <command>\n<output>" (the "!command" handler).
