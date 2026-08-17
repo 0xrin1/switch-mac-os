@@ -57,11 +57,14 @@ enum CodeHighlighter {
         return highlighted(code, jsLanguage: jsLanguage, colorScheme: colorScheme)
     }
 
-    /// Highlight tool output whose language is not known from metadata. This is
-    /// especially useful for shell commands that print source in another
-    /// language (grep/sed output containing C#, JSON, Python, etc.).
+    /// Highlight tool output whose language is not known from metadata.
     static func highlightedAuto(_ code: String, colorScheme: ColorScheme) -> AttributedString? {
-        highlighted(code, jsLanguage: nil, colorScheme: colorScheme)
+        // Try tree-sitter auto-detection first
+        if let result = TreeSitterHighlighter.highlightAuto(code) {
+            return result
+        }
+        // Fall back to highlight.js auto-detection
+        return highlighted(code, jsLanguage: nil, colorScheme: colorScheme)
     }
 
     private static func highlighted(
@@ -69,30 +72,20 @@ enum CodeHighlighter {
         jsLanguage: String?,
         colorScheme: ColorScheme
     ) -> AttributedString? {
+        // Try tree-sitter first for known languages
+        if let jsLanguage, let tsResult = TreeSitterHighlighter.highlight(code, language: jsLanguage) {
+            return tsResult
+        }
+
+        // Fall back to highlight.js
         let themeName = colorScheme == .dark ? "dracula" : "github"
         guard let hl = shared,
               setThemeIfNeeded(themeName, on: hl),
               let ns = hl.highlight(code, as: jsLanguage) else {
-            NSLog("[CodeHighlighter] highlighted FAILED — shared=%d, lang=%@, theme=%@",
-                  shared != nil ? 1 : 0, jsLanguage ?? "auto", themeName)
             return nil
         }
         let result = toSwiftUI(ns)
-        if result.characters.isEmpty {
-            NSLog("[CodeHighlighter] highlighted returned EMPTY for lang=%@", jsLanguage ?? "auto")
-            return nil
-        }
-        // Log color diversity for diagnostics
-        var colors = Set<String>()
-        for run in result.runs {
-            if let fg = run.foregroundColor?.description {
-                colors.insert(fg)
-            }
-        }
-        NSLog("[CodeHighlighter] highlighted OK — lang=%@, nsLen=%d, distinctColors=%d, first100=%@",
-              jsLanguage ?? "auto", ns.length, colors.count,
-              String(code.prefix(80).replacingOccurrences(of: "\n", with: "\\n")))
-        return result
+        return result.characters.isEmpty ? nil : result
     }
 
     private static func setThemeIfNeeded(_ name: String, on hl: Highlightr) -> Bool {

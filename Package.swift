@@ -15,6 +15,12 @@ let package = Package(
         .package(url: "https://github.com/tigase/Martin.git", branch: "master"),
         .package(url: "https://github.com/tigase/MartinOMEMO.git", branch: "master"),
         .package(url: "https://github.com/raspu/Highlightr.git", from: "2.3.0"),
+        // Tree-sitter syntax highlighting
+        .package(url: "https://github.com/tree-sitter/swift-tree-sitter", from: "0.25.0"),
+        .package(url: "https://github.com/tree-sitter/tree-sitter-python", branch: "master"),
+        .package(url: "https://github.com/tree-sitter/tree-sitter-c-sharp", branch: "master"),
+        .package(url: "https://github.com/tree-sitter/tree-sitter-bash", branch: "master"),
+        .package(url: "https://github.com/tree-sitter/tree-sitter-json", branch: "master"),
     ],
     targets: [
         .target(
@@ -29,6 +35,12 @@ let package = Package(
             dependencies: [
                 "SwitchCore",
                 .product(name: "Highlightr", package: "Highlightr"),
+                // Tree-sitter
+                .product(name: "SwiftTreeSitter", package: "swift-tree-sitter"),
+                .product(name: "TreeSitterPython", package: "tree-sitter-python"),
+                .product(name: "TreeSitterCSharp", package: "tree-sitter-c-sharp"),
+                .product(name: "TreeSitterBash", package: "tree-sitter-bash"),
+                .product(name: "TreeSitterJSON", package: "tree-sitter-json"),
             ]
         ),
     ]
