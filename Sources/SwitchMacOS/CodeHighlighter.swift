@@ -43,63 +43,31 @@ enum CodeHighlighter {
     ]
 
     static func highlighted(_ code: String, language: String, colorScheme: ColorScheme) -> AttributedString? {
-        let themeName = colorScheme == .dark ? "atom-one-dark" : "atom-one-light"
-        guard let hl = shared else {
-            diagOnce("FAIL shared Highlightr is nil — highlight.min.js/theme resources not found at runtime (check the .app bundle contains Highlightr_Highlightr.bundle)")
-            return nil
-        }
         guard let jsLanguage = languageMap[language.lowercased()] else { return nil }
-        guard setThemeIfNeeded(themeName, on: hl) else {
-            diagOnce("FAIL setTheme(\(themeName)) — theme CSS not found in bundle")
-            return nil
-        }
-        guard let ns = hl.highlight(code, as: jsLanguage) else {
-            diagOnce("FAIL highlight() returned nil for language \(jsLanguage)")
+        return highlighted(code, jsLanguage: jsLanguage, colorScheme: colorScheme)
+    }
+
+    /// Highlight tool output whose language is not known from metadata. This is
+    /// especially useful for shell commands that print source in another
+    /// language (grep/sed output containing C#, JSON, Python, etc.).
+    static func highlightedAuto(_ code: String, colorScheme: ColorScheme) -> AttributedString? {
+        highlighted(code, jsLanguage: nil, colorScheme: colorScheme)
+    }
+
+    private static func highlighted(
+        _ code: String,
+        jsLanguage: String?,
+        colorScheme: ColorScheme
+    ) -> AttributedString? {
+        let themeName = colorScheme == .dark ? "dracula" : "github"
+        guard let hl = shared,
+              setThemeIfNeeded(themeName, on: hl),
+              let ns = hl.highlight(code, as: jsLanguage) else {
             return nil
         }
 
         let result = toSwiftUI(ns)
-        guard !result.characters.isEmpty else { return nil }
-        diagOnce("OK highlight language=\(jsLanguage) theme=\(themeName) codeChars=\(code.count)")
-        return result
-    }
-
-    // One-shot runtime diagnostics so a silent no-op is diagnosable. Writes to
-    // stderr and ~/Library/Logs/switch-macos-highlight.log.
-    private static var diagState: [String: Bool] = [:]
-    private static var toolDiagLogged = false
-
-    /// One-shot diagnostic for the bash tool-call path (separate from the
-    /// highlighter's own once-per-key logging).
-    static func toolDiagOnce(_ message: String) {
-        guard !toolDiagLogged else { return }
-        toolDiagLogged = true
-        logDiag(message)
-    }
-
-    private static func diagOnce(_ message: String) {
-        let key = message.split(separator: " ").prefix(2).joined(separator: " ")
-        guard diagState[key] != true else { return }
-        diagState[key] = true
-        logDiag(message)
-    }
-
-    private static func logDiag(_ message: String) {
-        let line = "[CodeHighlighter \(Date())] \(message)\n"
-        let data = line.data(using: .utf8) ?? Data()
-        FileHandle.standardError.write(data)
-        let fm = FileManager.default
-        guard let lib = fm.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
-        let dir = lib.appendingPathComponent("Logs")
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("switch-macos-highlight.log")
-        if fm.fileExists(atPath: url.path), let fh = try? FileHandle(forWritingTo: url) {
-            fh.seekToEndOfFile()
-            try? fh.write(contentsOf: data)
-            try? fh.close()
-        } else {
-            try? data.write(to: url)
-        }
+        return result.characters.isEmpty ? nil : result
     }
 
     private static func setThemeIfNeeded(_ name: String, on hl: Highlightr) -> Bool {

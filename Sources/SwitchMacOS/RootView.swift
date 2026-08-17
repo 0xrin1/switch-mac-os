@@ -1548,29 +1548,21 @@ private struct ChatPane: View {
             let fullText = msg.meta?.toolResultFullText
             let displayedBody = isToolResultExpanded ? (fullText ?? msg.body) : msg.body
 
-            VStack(alignment: .leading, spacing: 4) {
+            Group {
                 if let attributed = toolCallContent(displayedBody) {
                     styledToolText(Text(attributed))
                 } else {
                     styledToolText(Text(displayedBody).foregroundStyle(.primary.opacity(0.9)))
                 }
-
-                if fullText != nil {
-                    Button {
-                        isToolResultExpanded.toggle()
-                    } label: {
-                        Label(
-                            isToolResultExpanded ? "Collapse output" : "Show full output",
-                            systemImage: isToolResultExpanded ? "chevron.up" : "chevron.down"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 8)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onTapGesture {
+                guard fullText != nil else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isToolResultExpanded.toggle()
                 }
             }
-            .frame(maxWidth: 520, alignment: .leading)
+            .help(fullText == nil ? "" : (isToolResultExpanded ? "Click to collapse output" : "Click to show full output"))
         }
 
         /// Shared look for tool-call result boxes (monospaced, subtle
@@ -1602,9 +1594,7 @@ private struct ChatPane: View {
 
             // "!command" handler: "$ <command>\n<output>" (always bash).
             if body.hasPrefix("$ ") {
-                let r = shellCommandContent(body)
-                CodeHighlighter.toolDiagOnce("toolCall $-prefix -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
-                return bakeToolFont(r)
+                return bakeToolFont(shellCommandContent(body))
             }
 
             // Runner tool result: "… [tool-result:<name> <output>]". Keep the
@@ -1622,9 +1612,7 @@ private struct ChatPane: View {
             guard let toolName = toolNameFromBody(body, marker: "[tool:") else {
                 return nil
             }
-            let r = runnerToolCallContent(body, toolName: toolName)
-            CodeHighlighter.toolDiagOnce("toolCall body toolName=\(toolName) body40=\(body.prefix(40)) -> \(r == nil ? "nil" : "ok(chars \(r!.characters.count) coloredRuns \(coloredRunCount(r!)))")")
-            return bakeToolFont(r)
+            return bakeToolFont(runnerToolCallContent(body, toolName: toolName))
         }
 
         /// Bake the monospaced font into the tool-call attributed string. The
@@ -1650,16 +1638,6 @@ private struct ChatPane: View {
                 }
             }
             return name.isEmpty ? nil : name
-        }
-
-        /// Count runs carrying an explicit foreground color (diagnostic signal:
-        /// >0 means the highlighter produced colors; 0 means it fell back to plain).
-        private func coloredRunCount(_ s: AttributedString) -> Int {
-            var n = 0
-            for run in s.runs {
-                if AttributedString(s[run.range]).foregroundColor != nil { n += 1 }
-            }
-            return n
         }
 
         /// "$ <command>\n<output>" (the "!command" handler).
@@ -1719,7 +1697,7 @@ private struct ChatPane: View {
                 payload.removeFirst()
             }
             if !payload.isEmpty {
-                result += mainContent(payload, toolName: toolName)
+                result += mainContent(payload, toolName: toolName, autoDetect: true)
             }
             result += Self.dimmed(String(body[closing...]))
             return result
@@ -1789,7 +1767,15 @@ private struct ChatPane: View {
 
         /// The main label of a tool call, colored by tool: bash → syntax
         /// highlight, other tools → readable primary text (a path/description).
-        private func mainContent(_ text: String, toolName: String) -> AttributedString {
+        private func mainContent(
+            _ text: String,
+            toolName: String,
+            autoDetect: Bool = false
+        ) -> AttributedString {
+            if autoDetect,
+               let highlighted = CodeHighlighter.highlightedAuto(text, colorScheme: colorScheme) {
+                return highlighted
+            }
             if toolName.lowercased() == "bash",
                let highlighted = CodeHighlighter.highlighted(text, language: "bash", colorScheme: colorScheme) {
                 return highlighted
