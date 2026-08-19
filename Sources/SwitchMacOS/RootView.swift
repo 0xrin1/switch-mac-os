@@ -233,6 +233,8 @@ private struct SidebarList: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ralphSection
+
             GeometryReader { g in
                 ZStack(alignment: .bottomTrailing) {
                     ScrollViewReader { proxy in
@@ -418,6 +420,64 @@ private struct SidebarList: View {
             }
         }
         .background(TintedSurface(base: Theme.windowBg, tint: Theme.accent, opacity: 0.055))
+    }
+
+    /// Fixed section at the very top of the sidebar listing sessions with
+    /// active Ralph loops (across all dispatchers). Empty state stays visible
+    /// so the section has a stable home.
+    private var ralphSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: "repeat.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                Text("Ralph")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+
+            if directory.ralphSessions.isEmpty {
+                Text("No running loops")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary.opacity(0.7))
+                    .padding(.horizontal, 14)
+                    .padding(.top, 2)
+                    .padding(.bottom, 6)
+            } else {
+                ForEach(directory.ralphSessions) { item in
+                    ralphRow(item)
+                }
+                .padding(.bottom, 4)
+            }
+
+            Divider()
+        }
+    }
+
+    private func ralphRow(_ item: DirectoryItem) -> some View {
+        let isComposing = xmpp.composingJids.contains(item.jid)
+        return SidebarRow(
+            title: item.name,
+            subtitle: nil,
+            leadingSymbolName: "repeat",
+            showAvatar: false,
+            avatarData: nil,
+            isSelected: directory.selectedSessionJid == item.jid,
+            isComposing: isComposing,
+            unreadCount: isComposing ? 0 : chatStore.unreadCount(for: item.jid),
+            onCancel: {
+                xmpp.sendMessage(to: item.jid, body: "/cancel")
+            },
+            onCopyName: nil,
+            onResume: nil
+        ) {
+            directory.selectRalphSession(item)
+        }
+        .id("ralph-\(item.jid)")
+        .padding(.horizontal, 10)
     }
 
     @ViewBuilder

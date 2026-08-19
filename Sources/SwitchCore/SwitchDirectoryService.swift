@@ -6,6 +6,8 @@ import Martin
 public final class SwitchDirectoryService: ObservableObject {
     @Published public private(set) var dispatchers: [DirectoryItem] = []
     @Published public private(set) var individuals: [DirectoryItem] = []
+    /// Sessions with an active Ralph loop, across all loaded dispatchers.
+    @Published public private(set) var ralphSessions: [DirectoryItem] = []
 
     // UI state: used to distinguish "empty" from "still loading".
     @Published public private(set) var isLoadingIndividuals: Bool = false
@@ -569,6 +571,32 @@ public final class SwitchDirectoryService: ObservableObject {
             isLoadingIndividuals = false
             individualsLoadedOnce = true
         }
+
+        recomputeRalphSessions()
+    }
+
+    /// Rebuild the cross-dispatcher list of sessions with active Ralph loops.
+    private func recomputeRalphSessions() {
+        var byJid: [String: DirectoryItem] = [:]
+        for (_, items) in sessionsByDispatcher {
+            for item in items where item.isRalphLoop && !item.isClosed {
+                byJid[item.jid] = item
+            }
+        }
+        for item in individuals where item.isRalphLoop && !item.isClosed {
+            byJid[item.jid] = item
+        }
+        let sorted = byJid.values.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+        if sorted != ralphSessions {
+            ralphSessions = sorted
+        }
+    }
+
+    /// Select a session from the Ralph section, switching dispatcher if needed.
+    public func selectRalphSession(_ item: DirectoryItem) {
+        selectSessionThread(jid: item.jid, dispatcherJid: dispatcherForSession(item.jid))
     }
 
     // MARK: - Disco query
@@ -584,10 +612,12 @@ public final class SwitchDirectoryService: ObservableObject {
                         // - dispatcher sort index (e.g. "0")
                         // - "direct" for no-session dispatchers
                         // - "closed" for historical sessions
+                        // - "ralph" for sessions with an active Ralph loop
                         // - "group"/"muc"/"room" for shared sessions
                         let nodeTags = self.nodeTagSet(item.node)
                         let isDirect = nodeTags.contains("direct")
                         let isClosed = nodeTags.contains("closed")
+                        let isRalphLoop = nodeTags.contains("ralph")
                         let isGroup = nodeTags.contains("group") || nodeTags.contains("muc") || nodeTags.contains("room") || self.isLikelyGroupJid(item.jid.bareJid.stringValue)
                         let sortOrder = self.parseSortOrder(item.node)
 
@@ -598,6 +628,7 @@ public final class SwitchDirectoryService: ObservableObject {
                             sortOrder: sortOrder,
                             isClosed: isClosed,
                             isGroup: isGroup,
+                            isRalphLoop: isRalphLoop,
                             individualsPubSubGroupLocal: self.parseIndividualsGroupLocal(item.node)
                         )
                     }.sorted { $0.sortOrder < $1.sortOrder }

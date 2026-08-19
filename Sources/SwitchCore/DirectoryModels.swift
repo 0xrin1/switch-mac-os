@@ -12,6 +12,8 @@ public struct DirectoryItem: Identifiable, Hashable, Sendable {
     public let isClosed: Bool
     /// True when this session is a shared room/group chat.
     public let isGroup: Bool
+    /// True when this session has an active (running) Ralph loop.
+    public let isRalphLoop: Bool
     /// Legacy pubsub group localpart (`sessions-<key>`) for individuals notifications.
     public let individualsPubSubGroupLocal: String?
 
@@ -22,6 +24,7 @@ public struct DirectoryItem: Identifiable, Hashable, Sendable {
         sortOrder: Int = Int.max,
         isClosed: Bool = false,
         isGroup: Bool = false,
+        isRalphLoop: Bool = false,
         individualsPubSubGroupLocal: String? = nil
     ) {
         self.jid = jid
@@ -31,6 +34,7 @@ public struct DirectoryItem: Identifiable, Hashable, Sendable {
         self.sortOrder = sortOrder
         self.isClosed = isClosed
         self.isGroup = isGroup
+        self.isRalphLoop = isRalphLoop
         self.individualsPubSubGroupLocal = individualsPubSubGroupLocal
     }
 }
