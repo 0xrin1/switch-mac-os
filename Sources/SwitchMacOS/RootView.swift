@@ -375,7 +375,7 @@ private struct SidebarList: View {
                                         directory.selectDispatcher(item)
                                     } label: {
                                         ZStack(alignment: .topTrailing) {
-                                            ZStack(alignment: .bottomTrailing) {
+                                            ZStack {
                                                 AvatarCircle(imageData: xmpp.avatarDataByJid[item.jid], fallbackText: item.name)
                                                     .scaleEffect(1.2)
                                                     .frame(width: 30, height: 30)
@@ -391,8 +391,10 @@ private struct SidebarList: View {
                                                         .frame(width: 12, height: 12)
                                                         .background(Color(NSColor.controlBackgroundColor))
                                                         .clipShape(Circle())
-                                                        .offset(x: 6, y: 6)
-                                                } else if isComposing {
+                                                        .offset(x: -6, y: 6)
+                                                }
+
+                                                if isComposing {
                                                     ProgressView()
                                                         .scaleEffect(0.35)
                                                         .frame(width: 10, height: 10)

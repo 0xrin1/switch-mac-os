@@ -21,13 +21,10 @@ public final class SwitchDirectoryService: ObservableObject {
     private var dispatcherToSessions: [String: Set<String>] = [:]
     private var sessionToDispatcher: [String: String] = [:]
 
-    /// Returns dispatchers with at least one composing non-Ralph session.
-    /// Ralph loops have their own persistent indicator and should not make a
-    /// dispatcher look like it is continuously handling a normal request.
+    /// Returns dispatchers with at least one composing session.
     public var dispatchersWithComposingSessions: Set<String> {
-        let ralphJids = Set(ralphSessions.map(\.jid))
         var result: Set<String> = []
-        for sessionJid in xmpp.composingJids where !ralphJids.contains(sessionJid) {
+        for sessionJid in xmpp.composingJids {
             if let dispatcherJid = sessionToDispatcher[sessionJid] {
                 result.insert(dispatcherJid)
             }
