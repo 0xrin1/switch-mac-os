@@ -21,11 +21,25 @@ public final class SwitchDirectoryService: ObservableObject {
     private var dispatcherToSessions: [String: Set<String>] = [:]
     private var sessionToDispatcher: [String: String] = [:]
 
-    /// Returns set of dispatcher JIDs that have at least one composing session
+    /// Returns dispatchers with at least one composing non-Ralph session.
+    /// Ralph loops have their own persistent indicator and should not make a
+    /// dispatcher look like it is continuously handling a normal request.
     public var dispatchersWithComposingSessions: Set<String> {
+        let ralphJids = Set(ralphSessions.map(\.jid))
         var result: Set<String> = []
-        for sessionJid in xmpp.composingJids {
+        for sessionJid in xmpp.composingJids where !ralphJids.contains(sessionJid) {
             if let dispatcherJid = sessionToDispatcher[sessionJid] {
+                result.insert(dispatcherJid)
+            }
+        }
+        return result
+    }
+
+    /// Dispatchers that currently own at least one active Ralph loop.
+    public var dispatchersWithRalphSessions: Set<String> {
+        var result: Set<String> = []
+        for item in ralphSessions {
+            if let dispatcherJid = sessionToDispatcher[item.jid] {
                 result.insert(dispatcherJid)
             }
         }
@@ -160,7 +174,7 @@ public final class SwitchDirectoryService: ObservableObject {
 
         // Use cached sessions if we have them; still refresh in the background.
         if let cached = sessionsByDispatcher[item.jid], !cached.isEmpty {
-            individuals = sortByRecency(cached)
+            individuals = sortByRecency(cached.filter { !$0.isRalphLoop })
             dispatcherToSessions[item.jid] = Set(cached.map { $0.jid })
             isLoadingIndividuals = false
             individualsLoadedOnce = true
@@ -552,9 +566,13 @@ public final class SwitchDirectoryService: ObservableObject {
         }
 
         if selectedDispatcherJid == dispatcherJid {
-            let didChangeIndividuals = individuals != sorted
+            // Active Ralph loops live exclusively in the fixed Ralph section.
+            // Keep them in the caches/maps for navigation and dispatcher state,
+            // but do not duplicate them in the normal session list.
+            let visibleSessions = sorted.filter { !$0.isRalphLoop }
+            let didChangeIndividuals = individuals != visibleSessions
             if didChangeIndividuals {
-                individuals = sorted
+                individuals = visibleSessions
             }
             if pendingRestoreDispatcherJid == dispatcherJid {
                 restoreRememberedSession(for: dispatcherJid)

@@ -357,6 +357,7 @@ private struct SidebarList: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
                             let composingDispatchers = directory.dispatchersWithComposingSessions
+                            let ralphDispatchers = directory.dispatchersWithRalphSessions
                             let unreadByDispatcher = dispatcherUnreadCounts()
                             if directory.dispatchers.isEmpty {
                                 Text("Loading dispatchers...")
@@ -367,6 +368,7 @@ private struct SidebarList: View {
                                 ForEach(directory.dispatchers) { item in
                                     let isSelected = directory.selectedDispatcherJid == item.jid
                                     let isComposing = composingDispatchers.contains(item.jid)
+                                    let hasRalphLoop = ralphDispatchers.contains(item.jid)
                                     let unreadCount = isComposing ? 0 : (unreadByDispatcher[item.jid] ?? 0)
 
                                     Button {
@@ -382,7 +384,15 @@ private struct SidebarList: View {
                                                             .stroke(isSelected ? Color.accentColor.opacity(0.65) : Color.clear, lineWidth: 2)
                                                     )
 
-                                                if isComposing {
+                                                if hasRalphLoop {
+                                                    Image(systemName: "repeat.circle.fill")
+                                                        .font(.system(size: 10, weight: .semibold))
+                                                        .foregroundStyle(Theme.accent)
+                                                        .frame(width: 12, height: 12)
+                                                        .background(Color(NSColor.controlBackgroundColor))
+                                                        .clipShape(Circle())
+                                                        .offset(x: 6, y: 6)
+                                                } else if isComposing {
                                                     ProgressView()
                                                         .scaleEffect(0.35)
                                                         .frame(width: 10, height: 10)
