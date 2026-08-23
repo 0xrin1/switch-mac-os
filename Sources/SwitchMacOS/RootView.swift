@@ -662,8 +662,8 @@ private struct SidebarRow: View {
                     .help("Send /cancel")
                 }
             }
-            if isHovering && !isComposing {
-                if let onResume {
+            if isHovering {
+                if !isComposing, let onResume {
                     Button(action: onResume) {
                         Image(systemName: "arrow.forward.circle")
                             .font(.system(size: 12))
